@@ -1,43 +1,46 @@
-.go-board {
-  position: relative;
-  /* 给它一个合适的宽度容器，内部的 .board 定高宽就好 */
+.go-board-container {
+  display: flex;
+  justify-content: center; /* 水平居中 */
+  margin-bottom: 16px;
 }
 
-/* 棋盘主体 */
+.go-board {
+  position: relative;
+  display: inline-block; /* 使内部绝对定位的元素根据它定位 */
+}
+
+/* 棋盘 540x540，19路适配 */
 .board {
   position: relative;
-  width: 540px;  /* 改成540，让19条线均分30px */
+  width: 540px;
   height: 540px;
   background-color: #f5e4bc;
   background-image:
     linear-gradient(to right, #333 1px, transparent 1px),
     linear-gradient(to bottom, #333 1px, transparent 1px);
-  /* 网格线每隔 30px 出现一条，一共19条线（0,30,60...,540） */
   background-size: 30px 30px;
   border: 2px solid #333;
 }
 
-/* 单个交叉点点击区域 */
+/* 交叉点的点击区域绝对定位 */
 .board-cell {
+  position: absolute;
   width: 30px;
   height: 30px;
-  position: absolute;
-  top: 0;
-  left: 0;
   transform: translate(-50%, -50%);
   cursor: pointer;
 }
 
-/* 棋子：z-index要大于星位 */
+/* 棋子/星位层级 */
 .stone {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
   position: absolute;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 2; /* 让棋子盖住星位 */
+  z-index: 2;
 }
 
 .black {
@@ -49,41 +52,46 @@
   border: 1px solid #ccc;
 }
 
-/* 星位：放低一点 z-index */
 .star-point {
   width: 8px;
   height: 8px;
-  border-radius: 50%;
   background-color: black;
+  border-radius: 50%;
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  z-index: 1; /* 低于棋子 */
+  z-index: 1;
 }
 
-.controls {
-  margin-bottom: 10px;
-}
-
-.timer {
+/* 计时器面板 */
+.timer-panel {
   position: absolute;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: rgba(255, 255, 255, 0.9);
   padding: 6px 10px;
-  border-radius: 4px;
+  border-radius: 6px;
   font-weight: bold;
+  z-index: 999; /* 确保浮在棋盘之上 */
 }
 
-/* 黑棋计时器：左上角 */
 .black-timer {
   top: 0;
   left: 0;
-  transform: translate(10px, 10px);
+  transform: translate(-10px, -10px);
+  text-align: left;
 }
 
-/* 白棋计时器：右下角 */
 .white-timer {
   bottom: 0;
   right: 0;
-  transform: translate(-10px, -10px);
+  transform: translate(10px, 10px);
+  text-align: right;
+}
+
+/* 按钮区域 */
+.controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 10px;
 }

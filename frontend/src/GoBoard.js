@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
 import "./GoBoard.css";
 
+/**
+ * GoBoard
+ * - 包含: 棋盘、计时器(黑左上/白右下)、落子/Pass/Resign/NewGame/回放(Prev, Next)
+ * - 修复: Resign 接口以 JSON Body 发 { player: "black"/"white" }.
+ */
 const GoBoard = ({ boardSize = 19 }) => {
-  // 棋盘状态
   const [board, setBoard] = useState(
     Array.from({ length: boardSize }, () => Array(boardSize).fill(null))
   );
@@ -11,140 +15,100 @@ const GoBoard = ({ boardSize = 19 }) => {
   const [message, setMessage] = useState("");
   const [matchId, setMatchId] = useState(null);
 
-  // 历史记录（用于前端本地“上一手/下一手”回放）
+  // 前端本地回放
   const [history, setHistory] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
 
-  // 计时：黑白各 15分钟(900秒)
-  const [blackTime, setBlackTime] = useState(15 * 60);
-  const [whiteTime, setWhiteTime] = useState(15 * 60);
+  // 倒计时
+  const [blackTime, setBlackTime] = useState(300);
+  const [whiteTime, setWhiteTime] = useState(300);
+  const timerRef = useRef(null);
 
-  // 是否已开局(第一次落子或pass后开始计时)
-  const [gameStarted, setGameStarted] = useState(false);
+  // 星位
+  const starPoints = [
+    [3, 3], [3, 9], [3, 15],
+    [9, 3], [9, 9], [9, 15],
+    [15, 3], [15, 9], [15, 15],
+  ];
 
-  // 是否已进入“复盘模式”(包括“Resign”或“超时”)
-  const [resigned, setResigned] = useState(false);
-
-  // ------------------ 初始化对局 ------------------
-  // 注意：这个函数也给“New Game”按钮复用
+  // 初始化对局
   const startNewGame = () => {
     axios
       .post("http://127.0.0.1:8000/api/v1/matches", { board_size: boardSize })
       .then((res) => {
         setMatchId(res.data.match_id);
         setBoard(res.data.board);
-        // 初始化本地状态
+        setCurrentPlayer(res.data.current_player);
+        setMessage("New game started!");
+
+        // 本地历史
         setHistory([res.data.board]);
         setCurrentStep(0);
-        setMessage("New game started!");
-        setCurrentPlayer("black");
-        setBlackTime(15 * 60);
-        setWhiteTime(15 * 60);
-        setGameStarted(false);
-        setResigned(false);
+
+        // 重置计时
+        setBlackTime(300);
+        setWhiteTime(300);
+        if (timerRef.current) clearInterval(timerRef.current);
+        startTimer(res.data.current_player);
       })
       .catch((err) => {
-        console.error("Failed to initialize the board:", err);
+        console.error("Failed to create match:", err);
         setMessage("Failed to initialize the game.");
       });
   };
 
-  // 首次挂载时创建一局
   useEffect(() => {
     startNewGame();
     // eslint-disable-next-line
   }, [boardSize]);
 
-  // ------------------ 计时逻辑 ------------------
-  useEffect(() => {
-    let timerId = null;
+  // 计时器
+  const startTimer = (player) => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = setInterval(() => {
+      if (player === "black") {
+        setBlackTime((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setMessage("Black loses on time!");
+            return 0;
+          }
+          return prev - 1;
+        });
+      } else {
+        setWhiteTime((prev) => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            setMessage("White loses on time!");
+            return 0;
+          }
+          return prev - 1;
+        });
+      }
+    }, 1000);
+  };
 
-    // 在游戏开始且未进入复盘模式时，每秒扣减“当前玩家”的时间
-    if (gameStarted && !resigned) {
-      timerId = setInterval(() => {
-        if (currentPlayer === "black") {
-          setBlackTime((t) => {
-            if (t <= 1) {
-              // 黑棋超时
-              clearInterval(timerId);
-              setResigned(true);
-              setMessage("Black is out of time. Black loses.");
-              return 0;
-            }
-            return t - 1;
-          });
-        } else {
-          setWhiteTime((t) => {
-            if (t <= 1) {
-              // 白棋超时
-              clearInterval(timerId);
-              setResigned(true);
-              setMessage("White is out of time. White loses.");
-              return 0;
-            }
-            return t - 1;
-          });
-        }
-      }, 1000);
-    }
-
-    return () => {
-      if (timerId) clearInterval(timerId);
-    };
-  }, [gameStarted, resigned, currentPlayer]);
-
-  // 将秒数格式化成 mm:ss
-  const formatTime = (seconds) => {
-    const m = Math.floor(seconds / 60);
-    const s = seconds % 60;
+  // 格式化秒数 -> mm:ss
+  const formatTime = (sec) => {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
     return `${m}:${s < 10 ? "0" : ""}${s}`;
   };
 
-  // ------------------ 上一手、下一手 ------------------
-  const handlePrev = () => {
-    if (currentStep > 0) {
-      setCurrentStep(currentStep - 1);
-      setBoard(history[currentStep - 1]);
-      setMessage("Went to previous move.");
-    }
-  };
-
-  const handleNext = () => {
-    if (currentStep < history.length - 1) {
-      setCurrentStep(currentStep + 1);
-      setBoard(history[currentStep + 1]);
-      setMessage("Went to next move.");
-    }
-  };
-
-  // ------------------ 处理落子 ------------------
+  // 落子
   const handleCellClick = (x, y) => {
-    // 如果已进入复盘模式(认输/超时等)，不允许继续下
-    if (resigned) {
-      setMessage("Game is over. Please start a new game or review the moves.");
-      return;
-    }
-
-    // 如果正在回放历史，不允许下子
-    if (currentStep < history.length - 1) {
-      setMessage("You cannot make a move while replaying history.");
-      return;
-    }
-
-    // 如果该位置已被占，提示
-    if (board[x][y] !== null) {
-      setMessage("This cell is already occupied!");
-      return;
-    }
-
     if (!matchId) {
-      setMessage("Match ID is missing!");
+      setMessage("No match ID!");
       return;
     }
-
-    // 第一次下子或pass后开始计时
-    if (!gameStarted) {
-      setGameStarted(true);
+    // 回放中
+    if (currentStep < history.length - 1) {
+      setMessage("You are replaying history, cannot move now.");
+      return;
+    }
+    if (board[x][y] !== null) {
+      setMessage("Cell occupied!");
+      return;
     }
 
     axios
@@ -154,37 +118,23 @@ const GoBoard = ({ boardSize = 19 }) => {
         setCurrentPlayer(res.data.current_player);
         setMessage(res.data.message);
 
-        // 更新历史记录
+        // 更新历史
         const newHistory = history.slice(0, currentStep + 1);
         newHistory.push(res.data.board);
         setHistory(newHistory);
         setCurrentStep(newHistory.length - 1);
+
+        startTimer(res.data.current_player);
       })
       .catch((err) => {
-        console.error("Error making a move:", err.response?.data || err.message);
+        console.error("Error making a move:", err);
         setMessage(err.response?.data?.detail || "An error occurred");
       });
   };
 
-  // ------------------ Pass ------------------
+  // Pass
   const handlePass = () => {
-    // 同样判断是否已结束
-    if (resigned) {
-      setMessage("Game is over. Please start a new game or review the moves.");
-      return;
-    }
-
-    if (!matchId) {
-      setMessage("Match ID is missing!");
-      return;
-    }
-
-    // 同样：第一次pass也会启动计时
-    if (!gameStarted) {
-      setGameStarted(true);
-    }
-
-    // 传 x:null, y:null
+    if (!matchId) return;
     axios
       .post(`http://127.0.0.1:8000/api/v1/matches/${matchId}/move`, {
         x: null,
@@ -195,42 +145,100 @@ const GoBoard = ({ boardSize = 19 }) => {
         setCurrentPlayer(res.data.current_player);
         setMessage(res.data.message);
 
+        // 更新历史
         const newHistory = history.slice(0, currentStep + 1);
         newHistory.push(res.data.board);
         setHistory(newHistory);
         setCurrentStep(newHistory.length - 1);
+
+        startTimer(res.data.current_player);
       })
       .catch((err) => {
-        console.error("Error passing:", err.response?.data || err.message);
+        console.error("Error passing:", err);
         setMessage(err.response?.data?.detail || "An error occurred");
       });
   };
 
-  // ------------------ Resign ------------------
+  // Resign
   const handleResign = () => {
-    if (resigned) {
-      setMessage("Game already finished.");
-      return;
-    }
-    // 当前玩家认输
-    setResigned(true);
-    setMessage(`${currentPlayer === "black" ? "Black" : "White"} resigned. Game over.`);
+    if (!matchId) return;
+    axios
+      .post(`http://127.0.0.1:8000/api/v1/matches/${matchId}/resign`, {
+        player: currentPlayer,
+      })
+      .then((res) => {
+        setBoard(res.data.board);
+        setMessage(res.data.message);
+      })
+      .catch((err) => {
+        console.error("Error resigning:", err);
+        setMessage(err.response?.data?.detail || "An error occurred");
+      });
   };
 
-  // ------------------ 星位（9个） ------------------
-  const starPoints = [
-    [3, 3], [3, 9], [3, 15],
-    [9, 3], [9, 9], [9, 15],
-    [15, 3], [15, 9], [15, 15],
-  ];
+  // 回放 Prev/Next
+  const handlePrev = () => {
+    if (currentStep > 0) {
+      const newStep = currentStep - 1;
+      setCurrentStep(newStep);
+      setBoard(history[newStep]);
+      setMessage("Went to previous move.");
+    }
+  };
+
+  const handleNext = () => {
+    if (currentStep < history.length - 1) {
+      const newStep = currentStep + 1;
+      setCurrentStep(newStep);
+      setBoard(history[newStep]);
+      setMessage("Went to next move.");
+    }
+  };
+
+  // 构造19x19网格
+  const cells = [];
+  for (let x = 0; x < boardSize; x++) {
+    for (let y = 0; y < boardSize; y++) {
+      const topPos = (x * 540) / (boardSize - 1);
+      const leftPos = (y * 540) / (boardSize - 1);
+      cells.push(
+        <div
+          key={`${x}-${y}`}
+          className="board-cell"
+          style={{ top: topPos, left: leftPos }}
+          onClick={() => handleCellClick(x, y)}
+        >
+          {board[x][y] === "black" && <div className="stone black" />}
+          {board[x][y] === "white" && <div className="stone white" />}
+          {starPoints.some(([sx, sy]) => sx === x && sy === y) && (
+            <div className="star-point" />
+          )}
+        </div>
+      );
+    }
+  }
 
   return (
-    <div className="go-board">
-      <h1>Go Game</h1>
-      <p>Current Player: {currentPlayer === "black" ? "Black" : "White"}</p>
+    <div>
+      {/* 棋盘 + 计时器 */}
+      <div className="go-board-container">
+        <div className="go-board">
+          {/* 黑方计时器 */}
+          <div className="timer-panel black-timer">
+            Black: {formatTime(blackTime)}
+          </div>
+          {/* 白方计时器 */}
+          <div className="timer-panel white-timer">
+            White: {formatTime(whiteTime)}
+          </div>
+          <div className="board">{cells}</div>
+        </div>
+      </div>
+
+      {/* 状态显示 */}
+      <p>Current Player: {currentPlayer}</p>
       <p>{message}</p>
 
-      {/* 操作按钮 */}
       <div className="controls">
         <button onClick={handlePrev} disabled={currentStep === 0}>
           Prev
@@ -241,42 +249,6 @@ const GoBoard = ({ boardSize = 19 }) => {
         <button onClick={handlePass}>Pass</button>
         <button onClick={handleResign}>Resign</button>
         <button onClick={startNewGame}>New Game</button>
-      </div>
-
-      {/* 棋盘主体 */}
-      <div className="board">
-        {/* 黑棋计时器 (左上) */}
-        <div className="timer black-timer">
-          Black [●]: {formatTime(blackTime)}
-        </div>
-        {/* 白棋计时器 (右下) */}
-        <div className="timer white-timer">
-          White [○]: {formatTime(whiteTime)}
-        </div>
-
-        {/* 生成 19×19 的交叉点 */}
-        {Array.from({ length: boardSize }).map((_, x) =>
-          Array.from({ length: boardSize }).map((_, y) => (
-            <div
-              key={`${x}-${y}`}
-              className="board-cell"
-              style={{
-                top: `${(x * 540) / (boardSize - 1)}px`,
-                left: `${(y * 540) / (boardSize - 1)}px`,
-              }}
-              onClick={() => handleCellClick(x, y)}
-            >
-              {/* 如果这里是黑子 */}
-              {board[x][y] === "black" && <div className="stone black" />}
-              {/* 如果这里是白子 */}
-              {board[x][y] === "white" && <div className="stone white" />}
-              {/* 星位 (如果无棋子也要显示)，已用 z-index 调整到下面 */}
-              {starPoints.some(([sx, sy]) => sx === x && sy === y) && (
-                <div className="star-point" />
-              )}
-            </div>
-          ))
-        )}
       </div>
     </div>
   );
