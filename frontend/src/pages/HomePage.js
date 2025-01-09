@@ -2,33 +2,32 @@ import React, { useState, useEffect } from "react";
 import { fetchUserInfo } from "../authUtils";
 
 function HomePage() {
-  const [username, setUsername] = useState("");
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [username, setUsername] = useState("");
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const userInfo = await fetchUserInfo();
-        setUsername(userInfo.username);
-        setIsLoggedIn(true);
-      } catch {
-        setIsLoggedIn(false);
-      }
-    };
+    useEffect(() => {
+        const fetchUser = async () => {
+            try {
+                const userInfo = await fetchUserInfo();
+                setUsername(userInfo.username);
+                setIsLoggedIn(true);
+            } catch {
+                setIsLoggedIn(false);
+            }
+        };
+        fetchUser();
+    }, []);
 
-    fetchUser();
-  }, []);
-
-  return (
-    <div>
-      <h1>Welcome to Magic Weiqi</h1>
-      {isLoggedIn ? (
-        <p>You're signed in as {username || "Anonymous"}</p>
-      ) : (
-        <p>You're not signed in.</p>
-      )}
-    </div>
-  );
+    return (
+        <div>
+            <h1>Welcome to Magic Weiqi</h1>
+            {isLoggedIn ? (
+                <p>You're signed in as {username}</p>
+            ) : (
+                <p>You're not signed in.</p>
+            )}
+        </div>
+    );
 }
 
 export default HomePage;
