@@ -12,7 +12,7 @@ class Player(BaseModel):
     player_id: str
     elo: int
     is_black: bool = False
-    avatar_url: str = ""  # 头像链接
+    avatar_url: str = ""
 
 class Card(BaseModel):
     card_id: str

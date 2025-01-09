@@ -3,13 +3,13 @@ import copy
 
 def finalize_game(match_id, game):
     """
-    占位方法：对局结束后做一些收尾动作。
-    1) 根据胜负更新 Elo (黑白双方).
-    2) 生成 SGF 文件并上传到 S3 (或保存在数据库).
-    3) 将最终结果记录到 DynamoDB (或其他数据库).
+    TODO:
+    1) Update Elo (for real).
+    2) Generate SGF and store to S3 (optional).
+    3) Persist game result to DynamoDB.
     """
-    # 占位：假设黑胜 +10 Elo, 白败 -10 Elo，实际可用更复杂算法
-    # generate_sgf(game)  # 生成SGF的占位，见下方注释
+    # Example: winner +10 Elo, loser -10 Elo, etc.
+    # generate_sgf(game)
     # store_to_ddb(match_id, game.winner, game.captured, <sgf_link>)
     pass
 
@@ -41,6 +41,7 @@ class GoGame:
         if (x, y) in visited:
             return 0
         visited.add((x, y))
+
         player = self.board[x][y]
         liberties = 0
         for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
@@ -74,6 +75,7 @@ class GoGame:
         opponent = "white" if player == "black" else "black"
         captured_any = False
         to_capture = []
+
         for dx, dy in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             nx, ny = x + dx, y + dy
             if self.is_on_board(nx, ny) and self.board[nx][ny] == opponent:
@@ -85,7 +87,7 @@ class GoGame:
         if not simulate and captured_any:
             for cx, cy in to_capture:
                 self.board[cx][cy] = None
-                self.captured[player] += 1
+            self.captured[player] += len(to_capture)
 
         return captured_any
 
@@ -95,11 +97,18 @@ class GoGame:
         if self.board[x][y] is not None:
             return False, "Cell already occupied"
 
+        # Temporarily place the stone
         self.board[x][y] = player
+
+        # Check for suicide
         if self.count_liberties(x, y) == 0:
+            # However, if it captures opponent stones, it's valid
             if not self.capture_stones(x, y, player, simulate=True):
+                # revert
                 self.board[x][y] = None
                 return False, "Suicide move"
+
+        # revert
         self.board[x][y] = None
         return True, ""
 
@@ -107,14 +116,14 @@ class GoGame:
         if self.game_over:
             return False, "Game is over."
 
-        # pass
+        # If pass
         if x is None and y is None:
             self.passes += 1
             if self.passes >= 2:
-                # 连续2次pass，结束对局
+                # 2 consecutive passes => game ends
                 self.game_over = True
                 self.winner = "Draw by consecutive passes"
-                finalize_game("<some-match-id>", self)  # 占位，可把真实 match_id 传入
+                finalize_game("<some-match-id>", self)
             else:
                 self.current_player = "white" if self.current_player == "black" else "black"
             return True, "Pass"
@@ -126,17 +135,19 @@ class GoGame:
         old_board = copy.deepcopy(self.board)
         old_captured = self.captured.copy()
 
+        # Place the stone for real
         self.board[x][y] = self.current_player
         self.capture_stones(x, y, self.current_player)
 
+        # Ko rule detection
         board_hash = self.get_board_hash()
         if board_hash in self.history:
+            # revert (Ko)
             self.board = old_board
             self.captured = old_captured
             return False, "Ko detected"
 
         self.history.append(board_hash)
-
         self.current_player = "white" if self.current_player == "black" else "black"
         self.passes = 0
         return True, "Move accepted"
@@ -145,8 +156,7 @@ class GoGame:
         if self.game_over:
             return False, "Game is already over."
         self.game_over = True
-        # 胜者就是非当前player
         opponent = "white" if player == "black" else "black"
         self.winner = f"{player} resigned, {opponent} wins"
-        finalize_game("<some-match-id>", self)  # 调用占位收尾
+        finalize_game("<some-match-id>", self)
         return True, self.winner

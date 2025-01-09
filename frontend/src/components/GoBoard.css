@@ -1,15 +1,15 @@
 .go-board-container {
   display: flex;
-  justify-content: center; /* 水平居中 */
+  justify-content: center;
   margin-bottom: 16px;
 }
 
 .go-board {
   position: relative;
-  display: inline-block; /* 使内部绝对定位的元素根据它定位 */
+  display: inline-block;
 }
 
-/* 棋盘 540x540，19路适配 */
+/* Board background: 540x540 with lines every 30px. */
 .board {
   position: relative;
   width: 540px;
@@ -22,7 +22,7 @@
   border: 2px solid #333;
 }
 
-/* 交叉点的点击区域绝对定位 */
+/* Intersection: absolute at top/left. 30px spacing, click area is entire cell. */
 .board-cell {
   position: absolute;
   width: 30px;
@@ -31,7 +31,7 @@
   cursor: pointer;
 }
 
-/* 棋子/星位层级 */
+/* Stones */
 .stone {
   position: absolute;
   width: 24px;
@@ -52,6 +52,7 @@
   border: 1px solid #ccc;
 }
 
+/* Star points */
 .star-point {
   width: 8px;
   height: 8px;
@@ -64,34 +65,24 @@
   z-index: 1;
 }
 
-/* 计时器面板 */
+/* Timers in corners of the board container */
 .timer-panel {
   position: absolute;
   background-color: rgba(255, 255, 255, 0.9);
   padding: 6px 10px;
   border-radius: 6px;
   font-weight: bold;
-  z-index: 999; /* 确保浮在棋盘之上 */
+  z-index: 999;
 }
 
 .black-timer {
   top: 0;
   left: 0;
   transform: translate(-10px, -10px);
-  text-align: left;
 }
 
 .white-timer {
   bottom: 0;
   right: 0;
   transform: translate(10px, 10px);
-  text-align: right;
-}
-
-/* 按钮区域 */
-.controls {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-  margin-top: 10px;
 }
