@@ -1,29 +1,34 @@
-// GoGamePage.js
 import React, { useState, useEffect } from "react";
 import { Grid, Paper, Typography, Avatar } from "@mui/material";
 import axios from "axios";
-import GoBoard from "./GoBoard";
-import { useParams } from "react-router-dom"; // For dynamic matchId
+import GoBoard from "../components/GoBoard";
+import { useParams } from "react-router-dom";
 
 function GoGamePage() {
-  const { matchId } = useParams(); // Dynamically get matchId from route
+  const { matchId } = useParams();
   const [players, setPlayers] = useState([]);
   const [blackCards, setBlackCards] = useState([]);
   const [whiteCards, setWhiteCards] = useState([]);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    // Fetch players and cards data based on matchId
     axios
-      .get(`http://127.0.0.1:8000/api/v1/matches/${matchId}/players`)
+      .get(`http://127.0.0.1:8000/api/v1/matches/${matchId}/players`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem("authToken")}`,
+        },
+      })
       .then((res) => {
         setPlayers(res.data.players);
         setBlackCards(res.data.black_cards);
         setWhiteCards(res.data.white_cards);
       })
-      .catch((err) => console.error("Failed to fetch player/cards:", err));
+      .catch((err) => {
+        console.error("Failed to fetch player/cards:", err);
+        setError("Failed to load game data.");
+      });
   }, [matchId]);
 
-  // Identify black and white players
   const blackPlayer = players.find((p) => p.is_black) || {
     player_id: "??",
     elo: 0,
@@ -35,13 +40,13 @@ function GoGamePage() {
     avatar_url: "",
   };
 
+  if (error) return <p>{error}</p>;
+
   return (
     <Grid container spacing={2} style={{ padding: 16 }}>
-      {/* Left: GoBoard */}
       <Grid item xs={12} md={8}>
-        <GoBoard boardSize={19} />
+        <GoBoard boardSize={19} matchId={matchId} />
       </Grid>
-      {/* Right: Match Info */}
       <Grid item xs={12} md={4}>
         <Paper style={{ padding: 16 }}>
           <Typography variant="h5" gutterBottom>
