@@ -1,20 +1,22 @@
+/* frontend/src/components/GoBoard.css */
+
 .go-board-container {
   display: flex;
   justify-content: center;
   margin-bottom: 16px;
 }
 
-.go-board {
-  position: relative;
-  display: inline-block;
-}
-
-/* Board background: 540x540 with lines every 30px. */
+/* 19*30 = 570, 加两边留白 15px => 570 + 30 = 600?
+   或者只让lines在(15,15) ~ (15+...)?
+   这里简化: width=height=570, offset=15, 不要再加额外30 */
 .board {
   position: relative;
-  width: 540px;
-  height: 540px;
+  width: 570px;
+  height: 570px;
   background-color: #f5e4bc;
+  /* 这部分让线网格自动从0~570. 但我们手动给 .board-cell 偏移 15px.
+     也可以用 background-position: 15px 15px; 让线往里缩 */
+  background-position: 15px 15px;
   background-image:
     linear-gradient(to right, #333 1px, transparent 1px),
     linear-gradient(to bottom, #333 1px, transparent 1px);
@@ -22,7 +24,6 @@
   border: 2px solid #333;
 }
 
-/* Intersection: absolute at top/left. 30px spacing, click area is entire cell. */
 .board-cell {
   position: absolute;
   width: 30px;
@@ -31,7 +32,7 @@
   cursor: pointer;
 }
 
-/* Stones */
+/* 棋子 */
 .stone {
   position: absolute;
   width: 24px;
@@ -52,7 +53,7 @@
   border: 1px solid #ccc;
 }
 
-/* Star points */
+/* 星位 */
 .star-point {
   width: 8px;
   height: 8px;
@@ -63,26 +64,4 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1;
-}
-
-/* Timers in corners of the board container */
-.timer-panel {
-  position: absolute;
-  background-color: rgba(255, 255, 255, 0.9);
-  padding: 6px 10px;
-  border-radius: 6px;
-  font-weight: bold;
-  z-index: 999;
-}
-
-.black-timer {
-  top: 0;
-  left: 0;
-  transform: translate(-10px, -10px);
-}
-
-.white-timer {
-  bottom: 0;
-  right: 0;
-  transform: translate(10px, 10px);
 }
