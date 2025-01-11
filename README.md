@@ -32,7 +32,7 @@
 
      ```cmd
      python -m venv venv
-     venv\Scripts ctivate
+     .\venv\Scripts\Activate
      ```
 
 3. 安装依赖：
