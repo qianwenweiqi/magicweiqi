@@ -43,8 +43,8 @@
 
 4. 运行后端服务：
 
-   ```bash
-   uvicorn main:app --reload
+   ```bash (/magicweiqi)
+   uvicorn backend.main:app --reload
    ```
 
 ---
