@@ -1,5 +1,6 @@
 # backend/routers/rooms.py
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
+from ..auth import get_current_user
 import uuid
 
 router = APIRouter()
@@ -20,7 +21,7 @@ def list_rooms():
     return {"rooms": room_list}
 
 @router.post("/rooms")
-def create_room(data: dict):
+def create_room(data: dict, current_user: dict = Depends(get_current_user)):
     """
     data={
       "eloMin": int,
@@ -52,7 +53,8 @@ def create_room(data: dict):
     return {"room_id": room_id}
 
 @router.post("/rooms/{room_id}/join")
-def join_room(room_id: str, username: str = "dummy_user"):
+def join_room(room_id: str, current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     room = rooms[room_id]
@@ -70,7 +72,8 @@ def join_room(room_id: str, username: str = "dummy_user"):
     return {"joined": True}
 
 @router.post("/rooms/{room_id}/ready")
-def ready_room(room_id: str, username: str = "dummy_user"):
+def ready_room(room_id: str, current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     room = rooms[room_id]
