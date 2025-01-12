@@ -1,29 +1,35 @@
-/* frontend/src/components/GoBoard.css */
-
 .go-board-container {
   display: flex;
   justify-content: center;
   margin-bottom: 16px;
 }
 
-/* 19*30 = 570, 加两边留白 15px => 570 + 30 = 600?
-   或者只让lines在(15,15) ~ (15+...)?
-   这里简化: width=height=570, offset=15, 不要再加额外30 */
+.go-board {
+  position: relative;
+  display: inline-block;
+  padding: 15px; /* Add half-grid padding */
+  background-color: #f5e4bc; /* Match board color */
+  border: 2px solid #333; /* Move border to outer container */
+  border-radius: 4px; /* Slight rounding to match stones */
+}
+
+/* 棋盘：540x540，每30px画一条线 => 共19条线 => 19x19交点 */
 .board {
   position: relative;
-  width: 570px;
-  height: 570px;
+  width: 541px; /* Add 1px to show last vertical line */
+  height: 541px; /* Add 1px to show last horizontal line */
   background-color: #f5e4bc;
-  /* 这部分让线网格自动从0~570. 但我们手动给 .board-cell 偏移 15px.
-     也可以用 background-position: 15px 15px; 让线往里缩 */
-  background-position: 15px 15px;
   background-image:
     linear-gradient(to right, #333 1px, transparent 1px),
     linear-gradient(to bottom, #333 1px, transparent 1px);
   background-size: 30px 30px;
-  border: 2px solid #333;
+  margin: -0.5px; /* Compensate for the extra size while maintaining line visibility */
 }
 
+/* 每个交点30px间隔，但我们让其中心对齐网格线的交点：
+   - 原版：top = x*30, left = y*30, 再 transform: translate(-50%, -50%)
+   - 由于要翻转可视，请看 GoBoard.jsx 里的 logic
+*/
 .board-cell {
   position: absolute;
   width: 30px;
@@ -32,7 +38,7 @@
   cursor: pointer;
 }
 
-/* 棋子 */
+/* 棋子大小24px，让中心对齐cell中心 */
 .stone {
   position: absolute;
   width: 24px;
@@ -53,7 +59,7 @@
   border: 1px solid #ccc;
 }
 
-/* 星位 */
+/* 星位稍大一些，8x8 */
 .star-point {
   width: 8px;
   height: 8px;
@@ -64,4 +70,26 @@
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 1;
+}
+
+/* 计时面板 */
+.timer-panel {
+  position: absolute;
+  background-color: rgba(255, 255, 255, 0.9);
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  z-index: 999;
+}
+
+.black-timer {
+  top: 0;
+  left: 0;
+  transform: translate(-10px, -10px);
+}
+
+.white-timer {
+  bottom: 0;
+  right: 0;
+  transform: translate(10px, 10px);
 }

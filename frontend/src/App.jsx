@@ -7,6 +7,8 @@ import Profile from "./pages/Profile";
 import GoGamePage from "./pages/GoGamePage";
 import Lobby from "./pages/Lobby";
 import Register from "./pages/Register";
+import ReviewRoom from "./pages/ReviewRoom";
+import Login from "./pages/Login";
 
 function App() {
   return (
@@ -18,6 +20,8 @@ function App() {
         <Route path="/game/:matchId" element={<GoGamePage />} />
         <Route path="/lobby" element={<Lobby />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/review" element={<ReviewRoom />} />
       </Routes>
     </Router>
   );

@@ -12,6 +12,7 @@ import {
 import axios from "axios";
 import GoBoard from "../components/GoBoard";
 import { API_BASE_URL } from "../config/config";
+import ScoringPanel from "../components/ScoringPanel";
 
 function GoGamePage() {
   const [matchId, setMatchId] = useState(null);
@@ -43,6 +44,15 @@ function GoGamePage() {
   const [sgfData, setSgfData] = useState("");
   const [username, setUsername] = useState("");
 
+  // --- Scoring ---
+  const [scoringMode, setScoringMode] = useState(false);
+  const [scoringData, setScoringData] = useState({
+    deadStones: [],
+    territory: [],
+    blackScore: 0,
+    whiteScore: 0,
+  });
+
   useEffect(() => {
     const localUser = localStorage.getItem("username") || "";
     setUsername(localUser);
@@ -53,9 +63,13 @@ function GoGamePage() {
   const createMatch = () => {
     const token = localStorage.getItem("token");
     axios
-      .post(`${API_BASE_URL}/matches`, { board_size: 19 }, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      .post(
+        `${API_BASE_URL}/matches`,
+        { board_size: 19 },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      )
       .then((res) => {
         setMatchId(res.data.match_id);
         setBoard(res.data.board);
@@ -78,7 +92,7 @@ function GoGamePage() {
         setHistory([firstSnapshot]);
         setCurrentStep(0);
 
-        // Reset timers
+        // Reset clocks
         setBlackTime(300);
         setWhiteTime(300);
       })
@@ -106,9 +120,9 @@ function GoGamePage() {
       });
   }, [matchId]);
 
-  // local timers
   useEffect(() => {
-    if (gameOver || currentStep < history.length - 1) {
+    // Timer
+    if (gameOver || currentStep < history.length - 1 || scoringMode) {
       clearInterval(timerRef.current);
       return;
     }
@@ -118,7 +132,8 @@ function GoGamePage() {
         setBlackTime((prev) => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            alert("Black time is up!");
+            setGameOver(true);
+            setWinner("White wins by time");
             return 0;
           }
           return prev - 1;
@@ -127,7 +142,8 @@ function GoGamePage() {
         setWhiteTime((prev) => {
           if (prev <= 1) {
             clearInterval(timerRef.current);
-            alert("White time is up!");
+            setGameOver(true);
+            setWinner("Black wins by time");
             return 0;
           }
           return prev - 1;
@@ -135,15 +151,23 @@ function GoGamePage() {
       }
     }, 1000);
     return () => clearInterval(timerRef.current);
-  }, [currentPlayer, gameOver, currentStep, history]);
+  }, [currentPlayer, gameOver, currentStep, history, scoringMode]);
 
   const handleMove = (x, y) => {
-    if (currentStep < history.length - 1) {
-      setErrorMessage("You are replaying history, cannot place moves now.");
+    if (gameOver) {
+      setErrorMessage("Game is over.");
       return;
     }
-    if (!matchId || gameOver) {
-      setErrorMessage("Game is over or invalid match.");
+    if (scoringMode) {
+      markDeadStone(x, y);
+      return;
+    }
+    if (currentStep < history.length - 1) {
+      setErrorMessage("You are replaying history, cannot move now.");
+      return;
+    }
+    if (!matchId) {
+      setErrorMessage("Invalid match.");
       return;
     }
     const token = localStorage.getItem("token");
@@ -178,20 +202,29 @@ function GoGamePage() {
         setResignMessage("");
       })
       .catch((err) => {
-        console.error("Error making a move:", err);
+        console.error("Error making move:", err);
         setErrorMessage(err.response?.data?.detail || "Failed to make a move.");
       });
   };
 
   const handlePass = () => {
+    if (gameOver) {
+      setErrorMessage("Game is over.");
+      return;
+    }
+    if (scoringMode) {
+      setErrorMessage("Cannot pass in scoring mode.");
+      return;
+    }
     if (currentStep < history.length - 1) {
       setErrorMessage("You are replaying history, cannot pass now.");
       return;
     }
-    if (!matchId || gameOver) {
-      setErrorMessage("Game is over or invalid match.");
+    if (!matchId) {
+      setErrorMessage("Invalid match.");
       return;
     }
+
     const token = localStorage.getItem("token");
     axios
       .post(
@@ -230,12 +263,20 @@ function GoGamePage() {
   };
 
   const handleResign = () => {
+    if (gameOver) {
+      setErrorMessage("Game is over.");
+      return;
+    }
+    if (scoringMode) {
+      setErrorMessage("Cannot resign in scoring mode.");
+      return;
+    }
     if (currentStep < history.length - 1) {
       setErrorMessage("You are replaying history, cannot resign now.");
       return;
     }
-    if (!matchId || gameOver) {
-      setErrorMessage("Game is over or invalid match.");
+    if (!matchId) {
+      setErrorMessage("Invalid match.");
       return;
     }
     const token = localStorage.getItem("token");
@@ -274,12 +315,10 @@ function GoGamePage() {
       });
   };
 
-  // Replay
   const handlePrev = () => {
     if (currentStep > 0) {
       const newStep = currentStep - 1;
       setCurrentStep(newStep);
-
       const snap = history[newStep];
       setBoard(snap.board);
       setCurrentPlayer(snap.currentPlayer);
@@ -288,7 +327,6 @@ function GoGamePage() {
       setHistoryLength(snap.historyLength);
       setGameOver(snap.gameOver);
       setWinner(snap.winner);
-
       setErrorMessage("");
       setResignMessage("");
     }
@@ -298,7 +336,6 @@ function GoGamePage() {
     if (currentStep < history.length - 1) {
       const newStep = currentStep + 1;
       setCurrentStep(newStep);
-
       const snap = history[newStep];
       setBoard(snap.board);
       setCurrentPlayer(snap.currentPlayer);
@@ -307,15 +344,71 @@ function GoGamePage() {
       setHistoryLength(snap.historyLength);
       setGameOver(snap.gameOver);
       setWinner(snap.winner);
-
       setErrorMessage("");
       setResignMessage("");
     }
   };
 
   const handleRequestCounting = () => {
-    alert("Request counting (not implemented yet)");
+    if (gameOver) {
+      setErrorMessage("Game is over.");
+      return;
+    }
+    if (scoringMode) {
+      setErrorMessage("Already in scoring mode.");
+      return;
+    }
+    setScoringMode(true);
+    setErrorMessage("");
   };
+
+  const markDeadStone = (x, y) => {
+    if (!matchId) return;
+    const token = localStorage.getItem("token");
+    axios
+      .post(
+        `${API_BASE_URL}/matches/${matchId}/mark_dead_stone`,
+        { x, y },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+      .then((res) => {
+        setScoringData(res.data.scoring_data);
+      })
+      .catch((err) => {
+        console.error(err);
+        setErrorMessage("Failed to mark dead stone.");
+      });
+  };
+
+  const handleConfirmScoring = () => {
+    if (!matchId) return;
+    const token = localStorage.getItem("token");
+    axios
+      .post(`${API_BASE_URL}/matches/${matchId}/confirm_scoring`, {}, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+      .then((res) => {
+        if (res.data.final_scored) {
+          setScoringData({
+            ...scoringData,
+            blackScore: res.data.black_score,
+            whiteScore: res.data.white_score,
+          });
+          setGameOver(true);
+          setWinner(res.data.winner);
+        }
+      })
+      .catch((err) => {
+        console.error(err);
+        setErrorMessage("Confirm scoring failed.");
+      });
+  };
+
+  const handleCancelScoring = () => {
+    setScoringMode(false);
+    setErrorMessage("");
+  };
+
   const handleRequestDraw = () => {
     alert("Request draw (not implemented yet)");
   };
@@ -324,10 +417,9 @@ function GoGamePage() {
     if (!matchId) return;
     try {
       const token = localStorage.getItem("token");
-      const res = await axios.get(
-        `${API_BASE_URL}/matches/${matchId}/export_sgf`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await axios.get(`${API_BASE_URL}/matches/${matchId}/export_sgf`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       const sgf = res.data.sgf;
       setSgfData(sgf);
 
@@ -360,17 +452,17 @@ function GoGamePage() {
 
   const blackPlayerData = players.find((p) => p.is_black) || {
     player_id: "UnknownBlack",
-    elo: "??"
+    elo: "??",
   };
   const whitePlayerData = players.find((p) => !p.is_black) || {
     player_id: "UnknownWhite",
-    elo: "??"
+    elo: "??",
   };
 
   return (
-    <div style={{ padding: 16 }}>
+    /* 将外层padding去掉或改小，避免偏移棋盘 */
+    <div style={{ margin: 10 }}>
       <Grid container spacing={2}>
-        {/* Left: Black info */}
         <Grid item xs={2}>
           <Paper style={{ padding: "8px", marginBottom: "8px" }}>
             <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
@@ -380,7 +472,6 @@ function GoGamePage() {
             <Typography>ELO: {blackPlayerData.elo}</Typography>
             <Typography>Time: {blackTime}s</Typography>
             <Typography>Captured: {captured.black}</Typography>
-
             {blackCards.length > 0 && (
               <>
                 <Typography variant="subtitle2" style={{ marginTop: 6 }}>
@@ -403,7 +494,6 @@ function GoGamePage() {
           </Paper>
         </Grid>
 
-        {/* Center: Board */}
         <Grid item xs={8}>
           <GoBoard
             boardSize={19}
@@ -411,39 +501,96 @@ function GoGamePage() {
             currentPlayer={currentPlayer}
             isReplaying={currentStep < history.length - 1 || gameOver}
             onCellClick={handleMove}
+            showScoring={scoringMode}
+            scoringData={scoringData}
           />
+
           <div style={{ marginTop: 20, textAlign: "center" }}>
-            <Button onClick={handlePrev} disabled={currentStep === 0} variant="outlined" style={{ margin: 4 }}>
+            <Button
+              onClick={handlePrev}
+              disabled={currentStep === 0}
+              variant="outlined"
+              style={{ margin: 4 }}
+            >
               Prev
             </Button>
-            <Button onClick={handleNext} disabled={currentStep === history.length - 1} variant="outlined" style={{ margin: 4 }}>
+            <Button
+              onClick={handleNext}
+              disabled={currentStep === history.length - 1}
+              variant="outlined"
+              style={{ margin: 4 }}
+            >
               Next
             </Button>
             <Button onClick={handlePass} variant="outlined" style={{ margin: 4 }}>
               Pass
             </Button>
-            <Button onClick={handleConfirmResign} variant="outlined" color="error" style={{ margin: 4 }}>
+            <Button
+              onClick={handleConfirmResign}
+              variant="outlined"
+              color="error"
+              style={{ margin: 4 }}
+            >
               Resign
             </Button>
-            <Button onClick={handleRequestCounting} variant="outlined" style={{ margin: 4 }}>
+            <Button
+              onClick={handleRequestCounting}
+              variant="outlined"
+              style={{ margin: 4 }}
+            >
               Request Counting
             </Button>
-            <Button onClick={handleRequestDraw} variant="outlined" style={{ margin: 4 }}>
+            <Button
+              onClick={handleRequestDraw}
+              variant="outlined"
+              style={{ margin: 4 }}
+            >
               Request Draw
             </Button>
-            <Button onClick={handleExportSGF} variant="outlined" style={{ margin: 4 }} disabled={!gameOver}>
+            <Button
+              onClick={handleExportSGF}
+              variant="outlined"
+              style={{ margin: 4 }}
+              disabled={!gameOver}
+            >
               Export SGF
             </Button>
-            <Button onClick={handleConfirmNewGame} variant="outlined" color="secondary" style={{ margin: 4 }}>
+            <Button
+              onClick={handleConfirmNewGame}
+              variant="outlined"
+              color="secondary"
+              style={{ margin: 4 }}
+            >
               New Game
             </Button>
           </div>
-          {/* Error / Resign message */}
-          {errorMessage && <Typography color="error" style={{ marginTop: 8 }}>{errorMessage}</Typography>}
-          {resignMessage && <Typography color="primary" style={{ marginTop: 8 }}>{resignMessage}</Typography>}
+
+          {scoringMode && (
+            <ScoringPanel
+              currentPlayer={currentPlayer}
+              blackScore={scoringData.blackScore}
+              whiteScore={scoringData.whiteScore}
+              onConfirmScoring={handleConfirmScoring}
+              onCancelScoring={handleCancelScoring}
+            />
+          )}
+          {errorMessage && (
+            <Typography color="error" style={{ marginTop: 8 }}>
+              {errorMessage}
+            </Typography>
+          )}
+          {resignMessage && (
+            <Typography color="primary" style={{ marginTop: 8 }}>
+              {resignMessage}
+            </Typography>
+          )}
+          {winner && (
+            <Typography color="primary" style={{ marginTop: 8 }}>
+              Game Over: {winner}
+            </Typography>
+          )}
         </Grid>
 
-        {/* Right: White info */}
         <Grid item xs={2}>
           <Paper style={{ padding: "8px", marginBottom: "8px" }}>
             <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
@@ -453,7 +600,6 @@ function GoGamePage() {
             <Typography>ELO: {whitePlayerData.elo}</Typography>
             <Typography>Time: {whiteTime}s</Typography>
             <Typography>Captured: {captured.white}</Typography>
-
             {whiteCards.length > 0 && (
               <>
                 <Typography variant="subtitle2" style={{ marginTop: 6 }}>
@@ -477,7 +623,6 @@ function GoGamePage() {
         </Grid>
       </Grid>
 
-      {/* Dialog: new game */}
       <Dialog open={confirmNewGameOpen} onClose={handleCloseNewGameDialog}>
         <DialogTitle>Start a new game?</DialogTitle>
         <DialogActions>
@@ -488,7 +633,6 @@ function GoGamePage() {
         </DialogActions>
       </Dialog>
 
-      {/* Dialog: resign */}
       <Dialog open={confirmResignOpen} onClose={handleCloseResignDialog}>
         <DialogTitle>Confirm Resign?</DialogTitle>
         <DialogActions>

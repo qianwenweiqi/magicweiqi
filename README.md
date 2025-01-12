@@ -1,3 +1,19 @@
+## Code Combination Script
+
+The project includes a script to combine meaningful code files into a single text file. This is useful for providing context to AI models or for documentation purposes.
+
+### Running the Script
+
+1. Navigate to the project root directory
+2. Run the script using Python:
+   ```bash
+   python scripts/generate_code_pdf.py
+   ```
+3. The script will:
+   - Scan the configured directories for code files
+   - Combine them into `combined_code.txt`
+
+The combined file will be created in the project root directory.
 
 # MagicWeiqi
 

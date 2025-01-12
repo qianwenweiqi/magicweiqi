@@ -1,29 +1,25 @@
-// frontend/src/pages/Register.jsx
+// frontend/src/pages/Login.jsx
 import React, { useState } from "react";
 import { TextField, Button, Paper, Typography, Box } from "@mui/material";
+import { useNavigate } from "react-router-dom";
+import { login } from "../services/auth";
 
-function Register() {
+function Login() {
+  const navigate = useNavigate();
+
   const [username, setUsername] = useState("");
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
 
-  const handleSubmit = async (event) => {
-    event.preventDefault();
+  const handleLogin = async (e) => {
+    e.preventDefault();
     try {
-      const response = await fetch("http://localhost:8000/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password }),
-      });
-      if (response.ok) {
-        setMessage("Registration successful! You can now log in.");
-      } else {
-        const errorData = await response.json();
-        setMessage(`Registration failed: ${errorData.detail}`);
-      }
-    } catch (err) {
-      setMessage(`Registration failed: ${err.message}`);
+      await login(username, password);
+      setMessage("Login successful!");
+      // 登录成功后跳转到首页或Profile
+      navigate("/profile");
+    } catch (error) {
+      setMessage(`Login failed: ${error.message}`);
     }
   };
 
@@ -37,24 +33,15 @@ function Register() {
     >
       <Paper sx={{ width: 400, p: 4 }}>
         <Typography variant="h5" gutterBottom>
-          Register
+          Login
         </Typography>
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleLogin}>
           <TextField
             fullWidth
             margin="normal"
             label="Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            required
-          />
-          <TextField
-            fullWidth
-            margin="normal"
-            label="Email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
             required
           />
           <TextField
@@ -72,7 +59,7 @@ function Register() {
             sx={{ mt: 2 }}
             fullWidth
           >
-            Register
+            Login
           </Button>
         </form>
         {message && (
@@ -85,4 +72,4 @@ function Register() {
   );
 }
 
-export default Register;
+export default Login;

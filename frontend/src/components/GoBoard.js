@@ -1,40 +1,37 @@
-// frontend/src/components/GoBoard.js
-
 import React from "react";
 import "./GoBoard.css";
 
 /**
  * GoBoard
- * - NxN board
- * - isFlipped=true -> 180°翻转
- * - onCellClick(x,y) => place stone
+ * - 19x19交点，每格30px -> 540x540
+ * - Star points
+ * - onCellClick(x, y)
  */
-function GoBoard({
+const GoBoard = ({
   boardSize = 19,
-  board = [],
-  currentPlayer = "black",
+  board = [],           //  board[x][y] => "black"/"white"/null
   isReplaying = false,
-  isFlipped = false,
   onCellClick,
-}) {
+}) => {
+  // 星位
   const starPoints = [
     [3, 3], [3, 9], [3, 15],
     [9, 3], [9, 9], [9, 15],
     [15, 3], [15, 9], [15, 15],
   ];
 
+  // 生成 19x19 交点
   const cells = [];
   for (let x = 0; x < boardSize; x++) {
     for (let y = 0; y < boardSize; y++) {
-      // 如果翻转
-      const rx = isFlipped ? boardSize - 1 - x : x;
-      const ry = isFlipped ? boardSize - 1 - y : y;
+      // 1) stone => board[x][y]
+      const stone = board[x]?.[y];
+      // 2) starPoint => starPoints里是否包含 (x,y)
+      const isStar = starPoints.some(([sx, sy]) => sx === x && sy === y);
 
-      const stone = board[rx]?.[ry];
-      // 这里 x,y 用于渲染DOM位置
-      // topPos/leftPos 加 15px padding => 半格 padding
-      const topPos = x * 30 + 15;
-      const leftPos = y * 30 + 15;
+      // 4) 视觉上：top/left => x,y * 30
+      const topPos = x * 30;
+      const leftPos = y * 30;
 
       cells.push(
         <div
@@ -43,23 +40,26 @@ function GoBoard({
           style={{ top: `${topPos}px`, left: `${leftPos}px` }}
           onClick={() => {
             if (!isReplaying && onCellClick) {
-              onCellClick(rx, ry);
+              // 点击时把 x, y 发给父组件
+              onCellClick(x, y);
             }
           }}
         >
           {stone === "black" && <div className="stone black" />}
           {stone === "white" && <div className="stone white" />}
-          {starPoints.some(([sx, sy]) => sx === rx && sy === ry) && (
-            <div className="star-point" />
-          )}
+          {isStar && <div className="star-point" />}
         </div>
       );
     }
   }
 
-  return <div className="go-board-container">
-    <div className="board">{cells}</div>
-  </div>;
-}
+  return (
+    <div className="go-board-container">
+      <div className="go-board">
+        <div className="board">{cells}</div>
+      </div>
+    </div>
+  );
+};
 
 export default GoBoard;

@@ -4,42 +4,79 @@ import { Button, Typography, Paper } from "@mui/material";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import { API_BASE_URL } from "../config/config";
+import RoomCreationModal from "../components/RoomCreationModal";
 
 function Lobby() {
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
+  const [rooms, setRooms] = useState([]);
+  const [createRoomOpen, setCreateRoomOpen] = useState(false);
 
   useEffect(() => {
-    // 获取当前登录用户
     const localUser = localStorage.getItem("username");
     if (localUser) {
       setUsername(localUser);
     }
+    fetchRooms();
+    const interval = setInterval(fetchRooms, 5000);
+    return () => clearInterval(interval);
   }, []);
 
-  const handleCreateCustomGame = async () => {
+  const fetchRooms = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await axios.post(
-        `${API_BASE_URL}/matches`,
-        { board_size: 19 },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      );
-      const newMatchId = res.data.match_id;
-      navigate(`/game/${newMatchId}`);
+      // 这里使用 API_BASE_URL + '/rooms'
+      const res = await axios.get(`${API_BASE_URL}/rooms`);
+      setRooms(res.data.rooms || []);
     } catch (err) {
-      alert("Failed to create custom game: " + err.message);
+      console.error(err);
     }
   };
 
+  const handleCreateCustomGame = () => {
+    setCreateRoomOpen(true);
+  };
+
+  const handleRoomCreate = async (roomConfig) => {
+    setCreateRoomOpen(false);
+    try {
+      const token = localStorage.getItem("token");
+      // POST到 /rooms
+      const res = await axios.post(
+        `${API_BASE_URL}/rooms`,
+        { ...roomConfig },
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const newRoomId = res.data.room_id;
+      navigate(`/room/${newRoomId}`);
+    } catch (err) {
+      alert("Failed to create room: " + err.message);
+    }
+  };
+
+  // Placeholder
   const handleJoinPlaceholder = () => {
-    // 硬编码一个 matchId
     const placeholderMatchId = "placeholder-match";
     navigate(`/game/${placeholderMatchId}`);
+  };
+
+  // Join room
+  const handleJoinRoom = async (roomId) => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(
+        `${API_BASE_URL}/rooms/${roomId}/join`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      navigate(`/room/${roomId}`);
+    } catch (err) {
+      alert("Failed to join room: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
+  // Go to ReviewRoom
+  const handleGoToReviewRoom = () => {
+    navigate("/review");
   };
 
   return (
@@ -66,16 +103,46 @@ function Lobby() {
         >
           Create Custom Game
         </Button>
-        <Button variant="contained" onClick={handleJoinPlaceholder}>
+        <Button
+          variant="contained"
+          onClick={handleJoinPlaceholder}
+          style={{ marginRight: 8 }}
+        >
           Join Placeholder Game
+        </Button>
+        <Button variant="contained" onClick={handleGoToReviewRoom}>
+          Go to Review Room
         </Button>
       </div>
 
       <Paper style={{ padding: 16 }}>
-        <Typography variant="body1">
-          In the future, you can see a list of active rooms here.
+        <Typography variant="body1" gutterBottom>
+          Active Rooms:
         </Typography>
+        {rooms.map((room) => (
+          <Paper key={room.room_id} style={{ padding: 8, margin: 8 }}>
+            <Typography>Room ID: {room.room_id}</Typography>
+            <Typography>
+              ELO Range: {room.eloMin} - {room.eloMax}
+            </Typography>
+            <Typography>Players: {room.players.join(", ")}</Typography>
+            <Typography>Started: {room.started ? "Yes" : "No"}</Typography>
+            <Button
+              variant="outlined"
+              onClick={() => handleJoinRoom(room.room_id)}
+              style={{ marginTop: 6 }}
+            >
+              Join
+            </Button>
+          </Paper>
+        ))}
       </Paper>
+
+      <RoomCreationModal
+        open={createRoomOpen}
+        onClose={() => setCreateRoomOpen(false)}
+        onCreate={handleRoomCreate}
+      />
     </div>
   );
 }
