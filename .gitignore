@@ -1,3 +1,8 @@
 backend/services/__pycache__/scoring.cpython-313.pyc
 backend/services/__pycache__/go_game.cpython-313.pyc
 backend/routers/__pycache__/matches.cpython-313.pyc
+backend/__pycache__/auth.cpython-313.pyc
+backend/__pycache__/main.cpython-313.pyc
+backend/routers/__pycache__/rooms.cpython-313.pyc
+backend/__pycache__/main.cpython-313.pyc
+backend/__pycache__/main.cpython-313.pyc

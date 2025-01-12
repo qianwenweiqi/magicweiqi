@@ -38,7 +38,7 @@ app.include_router(matches_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 
 
-@app.post("/register", response_model=Token)
+@app.post("/api/v1/register", response_model=Token)
 async def register(user: UserCreate):
     # Check if the username already exists
     response = user_table.get_item(Key={"username": user.username})
@@ -57,7 +57,7 @@ async def register(user: UserCreate):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/login", response_model=Token)
+@app.post("/api/v1/login", response_model=Token)
 async def login(user: UserLogin):
     # Special case for test user
     if user.username == "test" and user.password == "test":
@@ -74,6 +74,6 @@ async def login(user: UserLogin):
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.get("/users/me")
+@app.get("/api/v1/users/me")
 async def read_users_me(current_user: dict = Depends(get_current_user)):
     return {"username": current_user["username"], "email": current_user["email"]}

@@ -7,7 +7,7 @@ def finalize_game(match_id, game):
     pass
 
 class GoGame:
-    def __init__(self, board_size=19, komi=6.5):
+    def __init__(self, board_size=19, komi=6.5, black_player=None, white_player=None):
         self.board_size = board_size
         self.komi = komi
         self.board = [[None for _ in range(board_size)] for _ in range(board_size)]
@@ -17,8 +17,27 @@ class GoGame:
         self.passes = 0
         self.game_over = False
         self.winner = None
+        
+        # Player information
+        self.black_player = black_player
+        self.white_player = white_player
+        
+        # Timer management
+        self.timers = {
+            "black": {
+                "main_time": 600,  # 10 minutes in seconds
+                "byo_yomi": 30,
+                "periods": 3
+            },
+            "white": {
+                "main_time": 600,
+                "byo_yomi": 30,
+                "periods": 3
+            },
+            "last_update": None
+        }
 
-        # 新增
+        # Game state
         self.dead_stones = set()  # (x, y)
         self.move_records = []    # [(color, x, y), ...]
 
