@@ -11,7 +11,7 @@ import {
 } from "@mui/material";
 import axios from "axios";
 import GoBoard from "../components/GoBoard";
-import { API_BASE_URL } from "../config";
+import { API_BASE_URL } from "../config/config";
 
 function GoGamePage() {
   const [matchId, setMatchId] = useState(null);

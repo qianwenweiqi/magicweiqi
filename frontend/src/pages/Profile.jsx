@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Typography, Paper } from "@mui/material";
-import { fetchUserInfo } from "../authUtils";
+import { fetchUserInfo } from "../services/auth";
 
 function Profile() {
   const [user, setUser] = useState({ username: "", email: "" });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { fetchUserInfo } from "../authUtils";
+import { fetchUserInfo } from "../services/auth";
 
 function HomePage() {
     const [username, setUsername] = useState("");
