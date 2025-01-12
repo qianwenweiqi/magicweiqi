@@ -1,0 +1,5 @@
+{
+    "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe", // For Windows
+    "python.terminal.activateEnvironment": true,
+    "terminal.integrated.shellArgs.windows": ["-ExecutionPolicy", "Bypass", "-NoLogo", "-NoProfile"]
+}

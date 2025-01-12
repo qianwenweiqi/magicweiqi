@@ -70,7 +70,7 @@ The combined file will be created in the project root directory.
 1. 进入 `frontend` 目录：
 
    ```bash
-   cd ../frontend
+   cd frontend
    ```
 
 2. 安装依赖：
