@@ -3,11 +3,18 @@ import { Paper, Typography } from "@mui/material";
 
 function PlayerPanel({ 
   playerData, 
-  time, 
+  timer, 
   captured, 
   cards, 
   color 
 }) {
+  const formatTime = (timer) => {
+    if (!timer) return "0s";
+    if (timer.main_time > 0) {
+      return `${Math.floor(timer.main_time)}s`;
+    }
+    return `${timer.periods}×${Math.floor(timer.byo_yomi)}s`;
+  };
   return (
     <Paper style={{ padding: "8px", marginBottom: "8px" }}>
       <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
@@ -15,7 +22,7 @@ function PlayerPanel({
       </Typography>
       <Typography>Username: {playerData.player_id}</Typography>
       <Typography>ELO: {playerData.elo}</Typography>
-      <Typography>Time: {time}s</Typography>
+      <Typography>Time: {formatTime(timer)}</Typography>
       <Typography>Captured: {captured}</Typography>
       {cards.length > 0 && (
         <>

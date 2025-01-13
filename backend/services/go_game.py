@@ -8,7 +8,7 @@ def finalize_game(match_id, game):
     pass
 
 class GoGame:
-    def __init__(self, board_size=19, komi=6.5, black_player=None, white_player=None, players=None):
+    def __init__(self, board_size=19, komi=6.5, black_player=None, white_player=None, players=None, main_time=300, byo_yomi_time=30, byo_yomi_periods=3):
         self.board_size = board_size
         self.komi = komi
         self.board = [[None for _ in range(board_size)] for _ in range(board_size)]
@@ -18,18 +18,20 @@ class GoGame:
         self.passes = 0
         self.game_over = False
         self.winner = None
+        
+        current_time = time.time()
         self.timers = {
             "black": {
-                "main_time": 0,
-                "byo_yomi": 0,
-                "periods": 0,
-                "last_update": None
+                "main_time": main_time,
+                "byo_yomi": byo_yomi_time,
+                "periods": byo_yomi_periods,
+                "last_update": current_time
             },
             "white": {
-                "main_time": 0,
-                "byo_yomi": 0,
-                "periods": 0,
-                "last_update": None
+                "main_time": main_time,
+                "byo_yomi": byo_yomi_time,
+                "periods": byo_yomi_periods,
+                "last_update": current_time
             }
         }
         
@@ -115,6 +117,7 @@ class GoGame:
 
         self.board[x][y] = player
         if self.count_liberties(x, y) == 0:
+            # 如果没有吃子，则是自杀
             if not self.capture_stones(x, y, player, simulate=True):
                 self.board[x][y] = None
                 return False, "Suicide move"
@@ -122,50 +125,54 @@ class GoGame:
         return True, ""
 
     def update_timers(self):
-        """Update timers based on current time"""
+        """Update the current player's timer based on elapsed time."""
         if self.game_over:
             return
 
         current_time = time.time()
         player = self.current_player
-        opponent = "white" if player == "black" else "black"
+        timer = self.timers[player]
         
-        # Update opponent's timer first
-        if self.timers[opponent]["last_update"]:
-            elapsed = current_time - self.timers[opponent]["last_update"]
-            if self.timers[opponent]["main_time"] > 0:
-                self.timers[opponent]["main_time"] = max(0, self.timers[opponent]["main_time"] - elapsed)
-            elif self.timers[opponent]["byo_yomi"] > 0:
-                self.timers[opponent]["byo_yomi"] = max(0, self.timers[opponent]["byo_yomi"] - elapsed)
-                if self.timers[opponent]["byo_yomi"] <= 0:
-                    self.timers[opponent]["periods"] -= 1
-                    if self.timers[opponent]["periods"] > 0:
-                        self.timers[opponent]["byo_yomi"] = self.timers[opponent]["byo_yomi"]
+        if timer["last_update"]:
+            elapsed = current_time - timer["last_update"]
+            
+            if timer["main_time"] > 0:
+                timer["main_time"] = max(0, timer["main_time"] - elapsed)
+            elif timer["byo_yomi"] > 0:
+                timer["byo_yomi"] = max(0, timer["byo_yomi"] - elapsed)
+                if timer["byo_yomi"] <= 0:
+                    timer["periods"] -= 1
+                    if timer["periods"] > 0:
+                        # Reset一个新的读秒
+                        timer["byo_yomi"] = self.timers[player]["byo_yomi"]
                     else:
+                        # 超时判负
                         self.game_over = True
-                        self.winner = f"{player} wins by timeout"
+                        opponent = "white" if player == "black" else "black"
+                        self.winner = f"{opponent} wins by timeout"
                         finalize_game("<some-match-id>", self)
                         return
 
-        # Update current player's timer
-        self.timers[player]["last_update"] = current_time
+        timer["last_update"] = current_time
 
     def play_move(self, x, y):
         if self.game_over:
             return False, "Game is over."
 
-        # Update timers before processing move
+        # 每次走子前先更新一次计时
         self.update_timers()
         if self.game_over:
-            return False, self.winner
+            return False, self.winner  # 可能已经因为超时被判负
 
         if x is None and y is None:
+            # pass
             self.passes += 1
             if self.passes >= 2:
                 self.game_over = True
                 self.winner = "Draw by consecutive passes"
                 finalize_game("<some-match-id>", self)
             else:
+                # 切换手
                 self.current_player = "white" if self.current_player == "black" else "black"
                 self.update_timers()
             return True, "Pass"
@@ -174,23 +181,30 @@ class GoGame:
         if not valid:
             return False, msg
 
+        # 备份，用于检查打劫
         old_board = copy.deepcopy(self.board)
         old_captured = self.captured.copy()
 
+        # 落子
         self.board[x][y] = self.current_player
         self.capture_stones(x, y, self.current_player)
 
         board_hash = self.get_board_hash()
         if board_hash in self.history:
+            # 打劫
             self.board = old_board
             self.captured = old_captured
             return False, "Ko detected"
 
+        # 推进历史
         self.history.append(board_hash)
         self.move_records.append((self.current_player, x, y))
 
+        # 切换手
         self.current_player = "white" if self.current_player == "black" else "black"
         self.passes = 0
+
+        # 落子后再次更新计时，以便 current_player 的timer起点更新
         self.update_timers()
         return True, "Move accepted"
 

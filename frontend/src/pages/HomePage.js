@@ -1,6 +1,6 @@
 // frontend/src/pages/HomePage.js
 import React, { useState, useEffect } from "react";
-import { fetchUserInfo } from "../services/auth";
+import { fetchUserInfo } from "../utils/auth";
 
 function HomePage() {
   const [username, setUsername] = useState("");

@@ -1,6 +1,7 @@
 // frontend/src/pages/Register.jsx
 import React, { useState } from "react";
 import { TextField, Button, Paper, Typography, Box } from "@mui/material";
+import { registerUser } from "../utils/api";
 
 function Register() {
   const [username, setUsername] = useState("");
@@ -11,17 +12,8 @@ function Register() {
   const handleSubmit = async (event) => {
     event.preventDefault();
     try {
-      const response = await fetch("http://localhost:8000/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, email, password }),
-      });
-      if (response.ok) {
-        setMessage("Registration successful! You can now log in.");
-      } else {
-        const errorData = await response.json();
-        setMessage(`Registration failed: ${errorData.detail}`);
-      }
+      await registerUser(username, email, password);
+      setMessage("Registration successful! You can now log in.");
     } catch (err) {
       setMessage(`Registration failed: ${err.message}`);
     }

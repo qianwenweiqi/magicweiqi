@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { TextField, Button, Paper, Typography, Box } from "@mui/material";
 import { useNavigate } from "react-router-dom";
-import { login } from "../services/auth";
+import { login } from "../utils/auth";
 
 function Login() {
   const navigate = useNavigate();

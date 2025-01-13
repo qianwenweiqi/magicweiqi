@@ -7,3 +7,6 @@ backend.egg-info/top_level.txt
 routers/__init__.py
 routers/matches.py
 routers/rooms.py
+services/__init__.py
+services/go_game.py
+services/scoring.py

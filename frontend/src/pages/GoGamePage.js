@@ -1,6 +1,8 @@
 // frontend/src/pages/GoGamePage.js
 import React, { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import GameControls from "../components/GameControls";
+import { createMatch } from "../utils/matchUtils";
 import {
   Grid,
   Paper,
@@ -17,6 +19,7 @@ import { API_BASE_URL } from "../config/config";
 import ScoringPanel from "../components/ScoringPanel";
 
 function GoGamePage() {
+  const navigate = useNavigate();
   const [matchId, setMatchId] = useState(null);
   const [board, setBoard] = useState([]);
   const [currentPlayer, setCurrentPlayer] = useState("black");
@@ -36,8 +39,16 @@ function GoGamePage() {
   const [history, setHistory] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
 
-  const [blackTime, setBlackTime] = useState(300);
-  const [whiteTime, setWhiteTime] = useState(300);
+  const [blackTimer, setBlackTimer] = useState({
+    main_time: 300,
+    byo_yomi: 30,
+    periods: 3
+  });
+  const [whiteTimer, setWhiteTimer] = useState({
+    main_time: 300,
+    byo_yomi: 30,
+    periods: 3
+  });
   const timerRef = useRef(null);
 
   const [confirmNewGameOpen, setConfirmNewGameOpen] = useState(false);
@@ -46,7 +57,7 @@ function GoGamePage() {
   const [sgfData, setSgfData] = useState("");
   const [username, setUsername] = useState("");
 
-  // --- Scoring ---
+  // Scoring
   const [scoringMode, setScoringMode] = useState(false);
   const [scoringData, setScoringData] = useState({
     deadStones: [],
@@ -55,35 +66,118 @@ function GoGamePage() {
     whiteScore: 0,
   });
 
+  const [ws, setWs] = useState(null);
+
+  const connectWebSocket = (mId) => {
+    console.log('Connecting to game WebSocket...'); // Debug log
+    
+    // Connect to game WebSocket
+    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsHost = window.location.hostname;
+    const wsPort = window.location.port === '3000' ? '8000' : window.location.port;
+    const wsUrl = `${wsProtocol}//${wsHost}:${wsPort}/ws/games/${mId}`;
+    console.log('Connecting to WebSocket URL:', wsUrl); // Debug log
+    
+    const websocket = new WebSocket(wsUrl);
+    
+    
+    websocket.onopen = () => {
+      console.log('Game WebSocket connection established');
+      setWs(websocket);
+    };
+    
+    websocket.onmessage = (event) => {
+      console.log('Received WebSocket message:', event.data); // Debug log
+      const data = JSON.parse(event.data);
+      if (data.type === 'game_update') {
+        console.log('Applying game update:', data); // Debug log
+        
+        // Always update state with server data
+        setBoard(data.board);
+        setCurrentPlayer(data.current_player);
+        setGameOver(data.game_over);
+        setWinner(data.winner);
+        setCaptured(data.captured || { black: 0, white: 0 });
+        setPasses(data.passes || 0);
+        
+        // Update timers if provided
+        if (data.black_timer) {
+          setBlackTimer(data.black_timer);
+        }
+        if (data.white_timer) {
+          setWhiteTimer(data.white_timer);
+        }
+        
+        // Update history
+        const newSnapshot = {
+          board: data.board,
+          currentPlayer: data.current_player,
+          passes: data.passes || 0,
+          captured: data.captured || { black: 0, white: 0 },
+          historyLength: data.history_length,
+          gameOver: data.game_over,
+          winner: data.winner,
+        };
+        
+        // Only add to history if it's a new state
+        if (history.length === 0 || 
+            JSON.stringify(history[history.length - 1].board) !== JSON.stringify(data.board)) {
+          setHistory(prev => [...prev, newSnapshot]);
+          setCurrentStep(prev => prev + 1);
+        }
+        
+        // Clear any error messages on successful update
+        setErrorMessage("");
+      }
+    };
+    
+    websocket.onerror = (error) => {
+      console.error('Game WebSocket error:', error);
+      // Try to reconnect
+      setTimeout(() => connectWebSocket(mId), 3000);
+    };
+    
+    websocket.onclose = () => {
+      console.log('Game WebSocket connection closed');
+      setWs(null);
+      // Try to reconnect
+      setTimeout(() => connectWebSocket(mId), 3000);
+    };
+    
+    return () => {
+      if (websocket) {
+        websocket.close();
+      }
+    };
+  };
+
   useEffect(() => {
     const localUser = localStorage.getItem("username") || "";
     setUsername(localUser);
-    createMatch();
+    
+    const pathMatch = window.location.pathname.match(/\/game\/([^/]+)/);
+    if (pathMatch && pathMatch[1]) {
+      const mId = pathMatch[1];
+      setMatchId(mId);
+      loadMatch(mId);
+      const cleanup = connectWebSocket(mId);
+      return cleanup;
+    } else {
+      window.location.href = '/lobby';
+    }
     // eslint-disable-next-line
   }, []);
 
-  const createMatch = () => {
+  const loadMatch = async (mId) => {
+    console.log(`Attempting to load match with id: ${mId}`);  // Debug log
     const token = localStorage.getItem("token");
-    const username = localStorage.getItem("username") || "test_player";
     axios
-      .post(
-        `${API_BASE_URL}/matches`,
-        {
-          board_size: 19,
-          black_player: username,
-          white_player: username,
-          main_time: 300,
-          byo_yomi_time: 30,
-          byo_yomi_periods: 3,
-          komi: 6.5,
-          handicap: 0
-        },
-        {
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      )
+      .get(`${API_BASE_URL}/matches/${mId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
       .then((res) => {
-        setMatchId(res.data.match_id);
+        console.log('Successfully loaded match data:', res.data);  // Debug log
+        setMatchId(mId);
         setBoard(res.data.board);
         setCurrentPlayer(res.data.current_player);
         setPasses(res.data.passes);
@@ -104,13 +198,20 @@ function GoGamePage() {
         setHistory([firstSnapshot]);
         setCurrentStep(0);
 
-        // Reset clocks
-        setBlackTime(300);
-        setWhiteTime(300);
+        setBlackTimer(res.data.black_timer || {
+          main_time: 300,
+          byo_yomi: 30,
+          periods: 3
+        });
+        setWhiteTimer(res.data.white_timer || {
+          main_time: 300,
+          byo_yomi: 30,
+          periods: 3
+        });
       })
       .catch((err) => {
-        console.error("Failed to create match:", err);
-        setErrorMessage("Failed to create or load a match.");
+        console.error("Failed to load match:", err);
+        setErrorMessage("Failed to load match. Please return to lobby.");
       });
   };
 
@@ -132,8 +233,24 @@ function GoGamePage() {
       });
   }, [matchId]);
 
+  // 当游戏结束后，可向后端更新状态
   useEffect(() => {
-    // Timer
+    if (gameOver && matchId) {
+      const token = localStorage.getItem("token");
+      axios
+        .post(`${API_BASE_URL}/matches/${matchId}/update_status`, {
+          status: "completed"
+        }, {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        .catch((err) => {
+          console.error("Failed to update lobby status:", err);
+        });
+    }
+  }, [gameOver, matchId]);
+
+  // 本地计时器，仅为视觉演示
+  useEffect(() => {
     if (gameOver || currentStep < history.length - 1 || scoringMode) {
       clearInterval(timerRef.current);
       return;
@@ -141,31 +258,49 @@ function GoGamePage() {
     clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
       if (currentPlayer === "black") {
-        setBlackTime((prev) => {
-          if (prev <= 1) {
+        setBlackTimer((prev) => {
+          const newTimer = { ...prev };
+          if (newTimer.main_time > 0) {
+            newTimer.main_time = Math.max(0, newTimer.main_time - 1);
+          } else if (newTimer.byo_yomi > 0) {
+            newTimer.byo_yomi = Math.max(0, newTimer.byo_yomi - 1);
+            if (newTimer.byo_yomi === 0 && newTimer.periods > 0) {
+              newTimer.periods--;
+              newTimer.byo_yomi = 30;
+            }
+          }
+          if (newTimer.main_time === 0 && newTimer.byo_yomi === 0 && newTimer.periods === 0) {
             clearInterval(timerRef.current);
             setGameOver(true);
             setWinner("White wins by time");
-            return 0;
           }
-          return prev - 1;
+          return newTimer;
         });
       } else {
-        setWhiteTime((prev) => {
-          if (prev <= 1) {
+        setWhiteTimer((prev) => {
+          const newTimer = { ...prev };
+          if (newTimer.main_time > 0) {
+            newTimer.main_time = Math.max(0, newTimer.main_time - 1);
+          } else if (newTimer.byo_yomi > 0) {
+            newTimer.byo_yomi = Math.max(0, newTimer.byo_yomi - 1);
+            if (newTimer.byo_yomi === 0 && newTimer.periods > 0) {
+              newTimer.periods--;
+              newTimer.byo_yomi = 30;
+            }
+          }
+          if (newTimer.main_time === 0 && newTimer.byo_yomi === 0 && newTimer.periods === 0) {
             clearInterval(timerRef.current);
             setGameOver(true);
             setWinner("Black wins by time");
-            return 0;
           }
-          return prev - 1;
+          return newTimer;
         });
       }
     }, 1000);
     return () => clearInterval(timerRef.current);
   }, [currentPlayer, gameOver, currentStep, history, scoringMode]);
 
-  const handleMove = (x, y) => {
+  const handleMove = async (x, y) => {
     if (gameOver) {
       setErrorMessage("Game is over.");
       return;
@@ -175,51 +310,53 @@ function GoGamePage() {
       return;
     }
     if (currentStep < history.length - 1) {
-      setErrorMessage("You are replaying history, cannot move now.");
+      setErrorMessage("You're in replay history mode, cannot move now.");
       return;
     }
     if (!matchId) {
       setErrorMessage("Invalid match.");
       return;
     }
+    // Verify it's the player's turn
+    const blackPlayer = players.find(p => p.is_black)?.player_id;
+    const whitePlayer = players.find(p => !p.is_black)?.player_id;
+    
+    if ((currentPlayer === "black" && username !== blackPlayer) ||
+        (currentPlayer === "white" && username !== whitePlayer)) {
+      setErrorMessage("Not your turn");
+      return;
+    }
+
     const token = localStorage.getItem("token");
-    axios
-      .post(
+    try {
+      const res = await axios.post(
         `${API_BASE_URL}/matches/${matchId}/move`,
         { x, y },
         { headers: { Authorization: `Bearer ${token}` } }
-      )
-      .then((res) => {
-        setBoard(res.data.board);
-        setCurrentPlayer(res.data.current_player);
-        setPasses(res.data.passes);
-        setCaptured(res.data.captured || { black: 0, white: 0 });
-        setHistoryLength(res.data.history_length);
-        setGameOver(res.data.game_over);
-        setWinner(res.data.winner);
-        setErrorMessage("");
-
-        const newSnapshot = {
-          board: res.data.board,
-          currentPlayer: res.data.current_player,
-          passes: res.data.passes,
-          captured: res.data.captured || { black: 0, white: 0 },
-          historyLength: res.data.history_length,
-          gameOver: res.data.game_over,
-          winner: res.data.winner,
-        };
-        const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
-        setHistory(newHistory);
-        setCurrentStep(newHistory.length - 1);
-        setResignMessage("");
-      })
-      .catch((err) => {
-        console.error("Error making move:", err);
-        setErrorMessage(err.response?.data?.detail || "Failed to make a move.");
-      });
+      );
+      
+      // Update history
+      const newSnapshot = {
+        board: res.data.board,
+        currentPlayer: res.data.current_player,
+        passes: res.data.passes,
+        captured: res.data.captured || { black: 0, white: 0 },
+        historyLength: res.data.history_length,
+        gameOver: res.data.game_over,
+        winner: res.data.winner,
+      };
+      const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
+      setHistory(newHistory);
+      setCurrentStep(newHistory.length - 1);
+      setResignMessage("");
+      setErrorMessage("");
+    } catch (err) {
+      console.error("Error making move:", err);
+      setErrorMessage(err.response?.data?.detail || "Failed to make a move.");
+    }
   };
 
-  const handlePass = () => {
+  const handlePass = async () => {
     if (gameOver) {
       setErrorMessage("Game is over.");
       return;
@@ -229,7 +366,7 @@ function GoGamePage() {
       return;
     }
     if (currentStep < history.length - 1) {
-      setErrorMessage("You are replaying history, cannot pass now.");
+      setErrorMessage("Replaying history, can't pass now.");
       return;
     }
     if (!matchId) {
@@ -237,44 +374,46 @@ function GoGamePage() {
       return;
     }
 
+    // Verify it's the player's turn
+    const blackPlayer = players.find(p => p.is_black)?.player_id;
+    const whitePlayer = players.find(p => !p.is_black)?.player_id;
+    
+    if ((currentPlayer === "black" && username !== blackPlayer) ||
+        (currentPlayer === "white" && username !== whitePlayer)) {
+      setErrorMessage("Not your turn");
+      return;
+    }
+
     const token = localStorage.getItem("token");
-    axios
-      .post(
+    try {
+      const res = await axios.post(
         `${API_BASE_URL}/matches/${matchId}/move`,
         { x: null, y: null },
         { headers: { Authorization: `Bearer ${token}` } }
-      )
-      .then((res) => {
-        setBoard(res.data.board);
-        setCurrentPlayer(res.data.current_player);
-        setPasses(res.data.passes);
-        setCaptured(res.data.captured || { black: 0, white: 0 });
-        setHistoryLength(res.data.history_length);
-        setGameOver(res.data.game_over);
-        setWinner(res.data.winner);
-        setErrorMessage("");
-
-        const newSnapshot = {
-          board: res.data.board,
-          currentPlayer: res.data.current_player,
-          passes: res.data.passes,
-          captured: res.data.captured || { black: 0, white: 0 },
-          historyLength: res.data.history_length,
-          gameOver: res.data.game_over,
-          winner: res.data.winner,
-        };
-        const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
-        setHistory(newHistory);
-        setCurrentStep(newHistory.length - 1);
-        setResignMessage("");
-      })
-      .catch((err) => {
-        console.error("Error passing:", err);
-        setErrorMessage(err.response?.data?.detail || "Failed to pass.");
-      });
+      );
+      
+      // Update history
+      const newSnapshot = {
+        board: res.data.board,
+        currentPlayer: res.data.current_player,
+        passes: res.data.passes,
+        captured: res.data.captured || { black: 0, white: 0 },
+        historyLength: res.data.history_length,
+        gameOver: res.data.game_over,
+        winner: res.data.winner,
+      };
+      const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
+      setHistory(newHistory);
+      setCurrentStep(newHistory.length - 1);
+      setResignMessage("");
+      setErrorMessage("");
+    } catch (err) {
+      console.error("Error passing:", err);
+      setErrorMessage(err.response?.data?.detail || "Failed to pass.");
+    }
   };
 
-  const handleResign = () => {
+  const handleResign = async () => {
     if (gameOver) {
       setErrorMessage("Game is over.");
       return;
@@ -284,47 +423,58 @@ function GoGamePage() {
       return;
     }
     if (currentStep < history.length - 1) {
-      setErrorMessage("You are replaying history, cannot resign now.");
+      setErrorMessage("In replay mode, cannot resign now.");
       return;
     }
     if (!matchId) {
       setErrorMessage("Invalid match.");
       return;
     }
+
+    // Verify it's the player's turn
+    const blackPlayer = players.find(p => p.is_black)?.player_id;
+    const whitePlayer = players.find(p => !p.is_black)?.player_id;
+    
+    if ((currentPlayer === "black" && username !== blackPlayer) ||
+        (currentPlayer === "white" && username !== whitePlayer)) {
+      setErrorMessage("Not your turn");
+      return;
+    }
+
     const token = localStorage.getItem("token");
-    axios
-      .post(
+    try {
+      const res = await axios.post(
         `${API_BASE_URL}/matches/${matchId}/resign`,
         { player: currentPlayer },
         { headers: { Authorization: `Bearer ${token}` } }
-      )
-      .then((res) => {
-        setBoard(res.data.board);
-        setResignMessage(res.data.message);
-        setPasses(res.data.passes);
-        setCaptured(res.data.captured || { black: 0, white: 0 });
-        setHistoryLength(res.data.history_length);
-        setGameOver(res.data.game_over);
-        setWinner(res.data.winner);
-        setErrorMessage("");
+      );
+      
+      setBoard(res.data.board);
+      setResignMessage(res.data.message);
+      setPasses(res.data.passes);
+      setCaptured(res.data.captured || { black: 0, white: 0 });
+      setHistoryLength(res.data.history_length);
+      setGameOver(res.data.game_over);
+      setWinner(res.data.winner);
+      setErrorMessage("");
 
-        const newSnapshot = {
-          board: res.data.board,
-          currentPlayer,
-          passes: res.data.passes,
-          captured: res.data.captured || { black: 0, white: 0 },
-          historyLength: res.data.history_length,
-          gameOver: res.data.game_over,
-          winner: res.data.winner,
-        };
-        const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
-        setHistory(newHistory);
-        setCurrentStep(newHistory.length - 1);
-      })
-      .catch((err) => {
-        console.error("Error resigning:", err);
-        setErrorMessage(err.response?.data?.detail || "Failed to resign.");
-      });
+      // Update history
+      const newSnapshot = {
+        board: res.data.board,
+        currentPlayer,
+        passes: res.data.passes,
+        captured: res.data.captured || { black: 0, white: 0 },
+        historyLength: res.data.history_length,
+        gameOver: res.data.game_over,
+        winner: res.data.winner,
+      };
+      const newHistory = [...history.slice(0, currentStep + 1), newSnapshot];
+      setHistory(newHistory);
+      setCurrentStep(newHistory.length - 1);
+    } catch (err) {
+      console.error("Error resigning:", err);
+      setErrorMessage(err.response?.data?.detail || "Failed to resign.");
+    }
   };
 
   const handlePrev = () => {
@@ -374,46 +524,65 @@ function GoGamePage() {
     setErrorMessage("");
   };
 
-  const markDeadStone = (x, y) => {
+  const markDeadStone = async (x, y) => {
     if (!matchId) return;
+
+    // Verify it's a player in the game
+    const blackPlayer = players.find(p => p.is_black)?.player_id;
+    const whitePlayer = players.find(p => !p.is_black)?.player_id;
+    if (username !== blackPlayer && username !== whitePlayer) {
+      setErrorMessage("Only players can mark dead stones");
+      return;
+    }
+
     const token = localStorage.getItem("token");
-    axios
-      .post(
+    try {
+      const res = await axios.post(
         `${API_BASE_URL}/matches/${matchId}/mark_dead_stone`,
         { x, y },
         { headers: { Authorization: `Bearer ${token}` } }
-      )
-      .then((res) => {
-        setScoringData(res.data.scoring_data);
-      })
-      .catch((err) => {
-        console.error(err);
-        setErrorMessage("Failed to mark dead stone.");
-      });
+      );
+      setScoringData(res.data.scoring_data);
+      setErrorMessage("");
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Failed to mark dead stone.");
+    }
   };
 
-  const handleConfirmScoring = () => {
+  const handleConfirmScoring = async () => {
     if (!matchId) return;
+
+    // Verify it's a player in the game
+    const blackPlayer = players.find(p => p.is_black)?.player_id;
+    const whitePlayer = players.find(p => !p.is_black)?.player_id;
+    if (username !== blackPlayer && username !== whitePlayer) {
+      setErrorMessage("Only players can confirm scoring");
+      return;
+    }
+
     const token = localStorage.getItem("token");
-    axios
-      .post(`${API_BASE_URL}/matches/${matchId}/confirm_scoring`, {}, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-      .then((res) => {
-        if (res.data.final_scored) {
-          setScoringData({
-            ...scoringData,
-            blackScore: res.data.black_score,
-            whiteScore: res.data.white_score,
-          });
-          setGameOver(true);
-          setWinner(res.data.winner);
-        }
-      })
-      .catch((err) => {
-        console.error(err);
-        setErrorMessage("Confirm scoring failed.");
-      });
+    try {
+      const res = await axios.post(
+        `${API_BASE_URL}/matches/${matchId}/confirm_scoring`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      
+      if (res.data.final_scored) {
+        setScoringData({
+          ...scoringData,
+          blackScore: res.data.black_score,
+          whiteScore: res.data.white_score,
+        });
+        setGameOver(true);
+        setWinner(res.data.winner);
+      }
+      setErrorMessage("");
+    } catch (err) {
+      console.error(err);
+      setErrorMessage("Confirm scoring failed.");
+    }
   };
 
   const handleCancelScoring = () => {
@@ -450,9 +619,26 @@ function GoGamePage() {
 
   const handleConfirmNewGame = () => setConfirmNewGameOpen(true);
   const handleCloseNewGameDialog = () => setConfirmNewGameOpen(false);
-  const handleNewGameOK = () => {
+  const handleNewGameOK = async () => {
     setConfirmNewGameOpen(false);
-    createMatch();
+    try {
+      const config = {
+        eloMin: 0,
+        eloMax: 9999,
+        whoIsBlack: "random",
+        timeRule: "absolute",
+        mainTime: 300,
+        byoYomiPeriods: 3,
+        byoYomiTime: 30,
+        boardSize: 19,
+        handicap: 0,
+      };
+      const roomId = await createMatch(config);
+      navigate(`/game/${roomId}`);
+    } catch (error) {
+      console.error('Error creating new game:', error);
+      setErrorMessage('Failed to create new game');
+    }
   };
 
   const handleConfirmResign = () => setConfirmResignOpen(true);
@@ -472,13 +658,12 @@ function GoGamePage() {
   };
 
   return (
-    /* 将外层padding去掉或改小，避免偏移棋盘 */
     <div style={{ margin: 10 }}>
       <Grid container spacing={2}>
         <Grid item xs={2}>
           <PlayerPanel 
             playerData={blackPlayerData}
-            time={blackTime}
+            timer={blackTimer}
             captured={captured.black}
             cards={blackCards}
             color="Black"
@@ -492,8 +677,6 @@ function GoGamePage() {
             currentPlayer={currentPlayer}
             isReplaying={currentStep < history.length - 1 || gameOver}
             onCellClick={handleMove}
-            showScoring={scoringMode}
-            scoringData={scoringData}
           />
 
           <GameControls
@@ -520,9 +703,19 @@ function GoGamePage() {
             />
           )}
           {errorMessage && (
-            <Typography color="error" style={{ marginTop: 8 }}>
-              {errorMessage}
-            </Typography>
+            <div>
+              <Typography color="error" style={{ marginTop: 8 }}>
+                {errorMessage}
+              </Typography>
+              <Button 
+                variant="contained" 
+                color="primary" 
+                style={{ marginTop: 8 }}
+                onClick={() => window.location.href = '/lobby'}
+              >
+                Return to Lobby
+              </Button>
+            </div>
           )}
           {resignMessage && (
             <Typography color="primary" style={{ marginTop: 8 }}>
@@ -539,7 +732,7 @@ function GoGamePage() {
         <Grid item xs={2}>
           <PlayerPanel 
             playerData={whitePlayerData}
-            time={whiteTime}
+            timer={whiteTimer}
             captured={captured.white}
             cards={whiteCards}
             color="White"
@@ -547,6 +740,7 @@ function GoGamePage() {
         </Grid>
       </Grid>
 
+      {/* New game confirm */}
       <Dialog open={confirmNewGameOpen} onClose={handleCloseNewGameDialog}>
         <DialogTitle>Start a new game?</DialogTitle>
         <DialogActions>
@@ -557,6 +751,7 @@ function GoGamePage() {
         </DialogActions>
       </Dialog>
 
+      {/* Resign confirm */}
       <Dialog open={confirmResignOpen} onClose={handleCloseResignDialog}>
         <DialogTitle>Confirm Resign?</DialogTitle>
         <DialogActions>

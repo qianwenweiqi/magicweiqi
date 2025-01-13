@@ -1,9 +1,8 @@
 # backend/services/scoring.py
+
 def mark_dead_stone(game, x, y, current_player):
     """
-    如果 (x,y) 是当前玩家颜色的棋子，则切换它是否标记为死子
-    （简单示例：只允许标记自己颜色的子为死子。
-     实际上也可能需要允许标记对方子的死活）
+    简单逻辑：只允许标记当前执棋方颜色的子为死子。
     """
     if game.board[x][y] != current_player:
         return
@@ -13,9 +12,10 @@ def mark_dead_stone(game, x, y, current_player):
     else:
         game.dead_stones.add(pos)
 
+
 def final_scoring(game):
     """
-    基于 game.dead_stones, 做一个简单的中国规则计算。
+    基于 game.dead_stones, 简单计算中国规则的目数 + 提子数 + komi。
     """
     size = game.board_size
     board_copy = []
@@ -50,18 +50,19 @@ def final_scoring(game):
                     visited.add((rr, cc))
                     territory_points.append((rr, cc))
                     for nr, nc in neighbors(rr, cc):
-                        if board_copy[nr][nc] is None and (nr,nc) not in visited:
-                            queue.append((nr,nc))
-                        elif board_copy[nr][nc] in ("black", "white"):
-                            color_set.add(board_copy[nr][nc])
+                        if 0 <= nr < size and 0 <= nc < size:
+                            if board_copy[nr][nc] is None and (nr,nc) not in visited:
+                                queue.append((nr,nc))
+                            elif board_copy[nr][nc] in ("black", "white"):
+                                color_set.add(board_copy[nr][nc])
 
                 if len(color_set) == 1:
                     if "black" in color_set:
                         black_territory += len(territory_points)
-                    if "white" in color_set:
+                    elif "white" in color_set:
                         white_territory += len(territory_points)
 
-    # 数活子的个数
+    # 数在棋盘上的存活子
     black_stones = 0
     white_stones = 0
     for r in range(size):

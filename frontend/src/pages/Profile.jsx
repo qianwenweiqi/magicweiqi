@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { Typography, Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Avatar } from "@mui/material";
-import { fetchUserInfo } from "../services/auth";
+import { fetchUserInfo } from "../utils/auth";
 
 // Dummy game records data
 const dummyRecords = [

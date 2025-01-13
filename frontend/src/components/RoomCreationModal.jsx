@@ -1,8 +1,9 @@
 // frontend/src/components/RoomCreationModal.jsx
 import React, { useState, useEffect } from "react";
-import axios from "axios";
 import { API_BASE_URL } from "../config/config";
+import { createMatch } from "../utils/matchUtils";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
 import {
   Dialog,
   DialogTitle,
@@ -18,33 +19,10 @@ import {
   Typography,
 } from "@mui/material";
 
-function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) {
+function RoomCreationModal({ open, onClose, onCreate, username, isCreator, createdRoomId, selectedRoom }) {
   const navigate = useNavigate();
-  const [ws, setWs] = useState(null);
   const [eloMin, setEloMin] = useState(0);
   const [eloMax, setEloMax] = useState(9999);
-  const [createdRoomId, setCreatedRoomId] = useState(null);
-
-  useEffect(() => {
-    if (!createdRoomId) return;
-
-    const websocket = new WebSocket(`${API_BASE_URL.replace('http', 'ws').replace('/api/v1', '')}/ws/rooms/${createdRoomId}`);
-    setWs(websocket);
-
-    websocket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      if (data.type === 'room_update' && data.players.length === 2) {
-        // Close modal and redirect to game when second player joins
-        onClose(false);
-        navigate(`/game/${createdRoomId}`);
-      }
-    };
-
-    return () => {
-      websocket.close();
-    };
-  }, [createdRoomId, navigate, onClose]);
-
   const [whoIsBlack, setWhoIsBlack] = useState("creator");
   const [timeRule, setTimeRule] = useState("absolute");
   const [mainTime, setMainTime] = useState(300);
@@ -52,53 +30,104 @@ function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) 
   const [byoYomiTime, setByoYomiTime] = useState(30);
   const [isWaiting, setIsWaiting] = useState(false);
 
+  const handleReady = async () => {
+    const token = localStorage.getItem("token");
+    if (!createdRoomId) return;
+
+    try {
+      await axios.post(
+        `${API_BASE_URL}/rooms/${createdRoomId}/ready`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+    } catch (error) {
+      console.error('Error marking ready:', error);
+    }
+  };
+
   const handleCreate = async () => {
+    if (isWaiting) return;
+
     const config = {
-      eloMin,
-      eloMax,
-      whoIsBlack,
-      timeRule,
-      mainTime,
-      byoYomiPeriods,
-      byoYomiTime,
+      eloMin: parseInt(eloMin, 10),
+      eloMax: parseInt(eloMax, 10),
+      whoIsBlack: whoIsBlack,
+      timeRule: timeRule,
+      mainTime: parseInt(mainTime, 10),
+      byoYomiPeriods: parseInt(byoYomiPeriods, 10),
+      byoYomiTime: parseInt(byoYomiTime, 10),
       boardSize: 19,
       handicap: 0,
     };
+
+    // Validate config
+    const validationErrors = [];
+    if (eloMin < 0 || eloMin > 9999) validationErrors.push('eloMin must be between 0-9999');
+    if (eloMax < 0 || eloMax > 9999) validationErrors.push('eloMax must be between 0-9999');
+    if (eloMin > eloMax) validationErrors.push('eloMin cannot be greater than eloMax');
+    if (!['creator', 'opponent', 'random'].includes(whoIsBlack)) validationErrors.push('Invalid whoIsBlack value');
+    if (!['absolute', 'byoyomi'].includes(timeRule)) validationErrors.push('Invalid timeRule value');
+    if (mainTime < 0) validationErrors.push('mainTime must be positive');
+    if (byoYomiPeriods < 0) validationErrors.push('byoYomiPeriods must be positive');
+    if (byoYomiTime < 0) validationErrors.push('byoYomiTime must be positive');
+
+    if (validationErrors.length > 0) {
+      alert(validationErrors.join('\n'));
+      return;
+    }
+
     setIsWaiting(true);
-    const roomId = await onCreate(config);
-    setCreatedRoomId(roomId);
+    try {
+      const roomId = await createMatch(config);
+      console.log('Room created successfully with ID:', roomId);
+      onCreate?.(roomId);
+    } catch (error) {
+      setIsWaiting(false);
+      
+      const errorMessage = error.message || 'Failed to create room';
+      if (errorMessage.includes('Please log in again')) {
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+      } else {
+        alert(errorMessage);
+      }
+    }
   };
 
   const handleClose = async () => {
     if (isWaiting && createdRoomId) {
-      // Clean up the room if waiting is canceled
+      // 如果已经在等待过程中，但用户又取消了 => 删除房间
       const token = localStorage.getItem("token");
       try {
         await axios.delete(`${API_BASE_URL}/rooms/${createdRoomId}`, {
           headers: { Authorization: `Bearer ${token}` }
         });
-        // Refresh room list after successful deletion
-        if (typeof onClose === 'function') {
-          onClose(true); // Pass true to indicate refresh is needed
-        }
+        onClose?.(true);
       } catch (error) {
         console.error('Error deleting room:', error);
       }
     } else {
-      if (typeof onClose === 'function') {
-        onClose(false); // Pass false for normal close
-      }
+      onClose?.(false);
     }
     setIsWaiting(false);
-    setCreatedRoomId(null);
   };
 
-  const handleDebugStart = async () => {
-    if (createdRoomId) {
-      await onDebugStart(createdRoomId);
-      handleClose();
-    }
+  const handleGameStart = (matchId) => {
+    console.log('Game started, navigating to game:', matchId);
+    onClose(false);
+    navigate(`/game/${matchId}`, { replace: true });
   };
+
+  // Add useEffect to handle game start when both players are ready
+  useEffect(() => {
+    if (selectedRoom?.players?.length === 2 && 
+        selectedRoom.ready?.[selectedRoom.players[0].username] && 
+        selectedRoom.ready?.[selectedRoom.players[1].username] &&
+        selectedRoom.started &&
+        selectedRoom.match_id) {
+      handleGameStart(selectedRoom.match_id);
+    }
+  }, [selectedRoom]);
 
   return (
     <Dialog 
@@ -108,28 +137,53 @@ function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) 
       fullWidth
     >
       <DialogTitle>
-        {isWaiting ? "Waiting for Opponent" : "Create Room"}
+        {isWaiting || !isCreator ? "Game Room" : "Create Room"}
       </DialogTitle>
       <DialogContent>
-        {isWaiting ? (
+        {isWaiting || !isCreator ? (
           <div style={{ textAlign: 'center', padding: '20px' }}>
             <CircularProgress style={{ marginBottom: '20px' }} />
-            <Typography variant="h6">
-              Waiting for an opponent to join...
+            <Typography variant="h6" gutterBottom>
+              Players
             </Typography>
-            <Typography variant="body2" color="textSecondary">
-              Your room has been created and is visible in the lobby
-            </Typography>
-            {username === "test" && (
-              <Button
-                variant="contained"
-                color="secondary"
-                onClick={handleDebugStart}
-                style={{ marginTop: '20px' }}
-              >
-                Debug Start with Virtual User
-              </Button>
-            )}
+            <div style={{ marginBottom: '20px' }}>
+              {selectedRoom?.players.map((player) => (
+                <div key={player.username} style={{ marginBottom: '10px', padding: '10px', border: '1px solid #ddd', borderRadius: '4px' }}>
+                  <Typography variant="subtitle1">
+                    {player.username} {player.username === username && "(You)"}
+                  </Typography>
+                  <Typography variant="body2" color="textSecondary">
+                    ELO: {player.elo}
+                  </Typography>
+                  <Typography variant="body2" color={
+                    selectedRoom.ready?.[player.username] ? "success.main" : "warning.main"
+                  }>
+                    {selectedRoom.ready?.[player.username] ? "Ready" : "Not Ready"}
+                  </Typography>
+                  {player.username === username && !selectedRoom.ready?.[username] && selectedRoom.players.length === 2 && (
+                    <Button
+                      variant="contained"
+                      color="primary"
+                      onClick={handleReady}
+                      style={{ marginTop: '10px' }}
+                      fullWidth
+                    >
+                      Ready
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            {selectedRoom?.players.length === 1 ? (
+              <Typography variant="body2" color="textSecondary">
+                Waiting for another player to join...
+              </Typography>
+            ) : selectedRoom?.players.length === 2 && selectedRoom.ready?.[username] ? (
+              <Typography variant="body2" color="textSecondary">
+                Waiting for {selectedRoom.players.find(p => p.username !== username).username} to be ready...
+              </Typography>
+            ) : null}
+            {selectedRoom?.started && selectedRoom.match_id && handleGameStart(selectedRoom.match_id)}
           </div>
         ) : (
           <>
@@ -215,9 +269,9 @@ function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) 
       </DialogContent>
       <DialogActions>
         <Button onClick={handleClose}>
-          {isWaiting ? "Cancel Wait" : "Cancel"}
+          {isWaiting || !isCreator ? "Leave Room" : "Cancel"}
         </Button>
-        {!isWaiting && (
+        {!isWaiting && isCreator && (
           <Button onClick={handleCreate} variant="contained">
             Create
           </Button>

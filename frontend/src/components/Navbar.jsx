@@ -2,7 +2,7 @@
 import React from 'react';
 import { AppBar, Toolbar, Typography, Button, Box } from '@mui/material';
 import { useNavigate } from 'react-router-dom';
-import { isAuthenticated, logout } from '../services/auth';
+import { isAuthenticated, logout } from '../utils/auth';
 
 function Navbar() {
   const navigate = useNavigate();
