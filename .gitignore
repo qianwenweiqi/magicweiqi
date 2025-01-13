@@ -1,3 +1,9 @@
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Specific pycache files
 backend/services/__pycache__/scoring.cpython-313.pyc
 backend/services/__pycache__/go_game.cpython-313.pyc
 backend/routers/__pycache__/matches.cpython-313.pyc
@@ -6,3 +12,8 @@ backend/__pycache__/main.cpython-313.pyc
 backend/routers/__pycache__/rooms.cpython-313.pyc
 backend/__pycache__/main.cpython-313.pyc
 backend/__pycache__/main.cpython-313.pyc
+backend/__pycache__/__init__.cpython-313.pyc
+backend/__pycache__/main.cpython-313.pyc
+backend/__pycache__/models.cpython-313.pyc
+backend/services/__pycache__/go_game.cpython-313.pyc
+backend/routers/__pycache__/matches.cpython-313.pyc
