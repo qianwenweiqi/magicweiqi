@@ -1,8 +1,8 @@
 # backend/routers/matches.py
 from fastapi import APIRouter, HTTPException, File, UploadFile
-from backend.models import Move, CreateMatch, Player, Card, ResignRequest
-from backend.services.go_game import GoGame
-from backend.services.scoring import mark_dead_stone, final_scoring
+from ..models import Move, CreateMatch, Player, Card, ResignRequest
+from ..services.go_game import GoGame
+from ..services.scoring import mark_dead_stone, final_scoring
 import uuid
 from sgfmill import sgf
 
@@ -10,26 +10,15 @@ router = APIRouter()
 
 matches = {}  # match_id -> GoGame
 
-dummy_players = [
-    Player(player_id="AlphaGo", elo=3200, is_black=True, avatar_url=""),
-    Player(player_id="Lee Sedol", elo=2800, is_black=False, avatar_url=""),
-]
-
-dummy_cards_black = [
-    Card(card_id="card01", name="Attack Boost", description="Increases territory by 2", cost=1),
-    Card(card_id="card02", name="Ko Trick", description="Retake Ko immediately", cost=2),
-]
-
-dummy_cards_white = [
-    Card(card_id="card03", name="Solid Defense", description="Adds 1 to your liberties", cost=1),
-    Card(card_id="card04", name="Lightning Strike", description="Removes 1 opponent stone", cost=1),
-]
-
 
 @router.post("/matches")
 def create_match(data: CreateMatch):
     match_id = str(uuid.uuid4())
-    game = GoGame(board_size=data.board_size)
+    game = GoGame(
+        board_size=data.board_size,
+        black_player=data.black_player,
+        white_player=data.white_player
+    )
     matches[match_id] = game
     return {
         "match_id": match_id,
@@ -41,6 +30,8 @@ def create_match(data: CreateMatch):
         "history_length": len(game.history),
         "game_over": game.game_over,
         "winner": game.winner,
+        "black_player": data.black_player,
+        "white_player": data.white_player,
     }
 
 
@@ -106,10 +97,24 @@ def get_match(match_id: str):
 def get_match_players(match_id: str):
     if match_id not in matches:
         raise HTTPException(status_code=404, detail="Match not found")
+    game = matches[match_id]
     return {
-        "players": dummy_players,
-        "black_cards": dummy_cards_black,
-        "white_cards": dummy_cards_white,
+        "players": [
+            Player(
+                player_id=game.black_player,
+                elo=0,  # TODO: Get actual ELO from user service
+                is_black=True,
+                avatar_url=""
+            ),
+            Player(
+                player_id=game.white_player,
+                elo=0,  # TODO: Get actual ELO from user service
+                is_black=False,
+                avatar_url=""
+            )
+        ],
+        "black_cards": [],  # TODO: Implement card system
+        "white_cards": [],  # TODO: Implement card system
     }
 
 

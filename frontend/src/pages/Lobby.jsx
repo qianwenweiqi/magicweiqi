@@ -187,6 +187,15 @@ function Lobby() {
             >
               Join
             </Button>
+            {room.started && (
+              <Button
+                variant="contained"
+                onClick={() => navigate(`/game/${room.room_id}`)}
+                style={{ marginTop: 6, marginLeft: 6 }}
+              >
+                Go to Match
+              </Button>
+            )}
             {username === "test" && room.players.includes("test") && !room.started && (
               <Button
                 variant="outlined"
@@ -203,10 +212,12 @@ function Lobby() {
 
       <RoomCreationModal
         open={createRoomOpen}
-        onClose={() => {
+        onClose={(shouldRefresh) => {
           setCreateRoomOpen(false);
           setSelectedRoom(null);
-          fetchRooms();
+          if (shouldRefresh) {
+            fetchRooms();
+          }
         }}
         onCreate={handleRoomCreate}
         onDebugStart={handleDebugJoin}

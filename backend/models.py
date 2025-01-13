@@ -2,11 +2,13 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 class Move(BaseModel):
-    x: Optional[int] = None
-    y: Optional[int] = None
+    x: int
+    y: int
 
 class CreateMatch(BaseModel):
     board_size: int = 19
+    black_player: str
+    white_player: str
 
 class Player(BaseModel):
     player_id: str

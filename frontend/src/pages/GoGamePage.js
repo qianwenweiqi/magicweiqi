@@ -1,5 +1,6 @@
 // frontend/src/pages/GoGamePage.js
 import React, { useState, useEffect, useRef } from "react";
+import GameControls from "../components/GameControls";
 import {
   Grid,
   Paper,
@@ -11,6 +12,7 @@ import {
 } from "@mui/material";
 import axios from "axios";
 import GoBoard from "../components/GoBoard";
+import PlayerPanel from "../components/PlayerPanel";
 import { API_BASE_URL } from "../config/config";
 import ScoringPanel from "../components/ScoringPanel";
 
@@ -62,10 +64,20 @@ function GoGamePage() {
 
   const createMatch = () => {
     const token = localStorage.getItem("token");
+    const username = localStorage.getItem("username") || "test_player";
     axios
       .post(
         `${API_BASE_URL}/matches`,
-        { board_size: 19 },
+        {
+          board_size: 19,
+          black_player: username,
+          white_player: username,
+          main_time: 300,
+          byo_yomi_time: 30,
+          byo_yomi_periods: 3,
+          komi: 6.5,
+          handicap: 0
+        },
         {
           headers: { Authorization: `Bearer ${token}` },
         }
@@ -464,34 +476,13 @@ function GoGamePage() {
     <div style={{ margin: 10 }}>
       <Grid container spacing={2}>
         <Grid item xs={2}>
-          <Paper style={{ padding: "8px", marginBottom: "8px" }}>
-            <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
-              Opponent (Black)
-            </Typography>
-            <Typography>Username: {blackPlayerData.player_id}</Typography>
-            <Typography>ELO: {blackPlayerData.elo}</Typography>
-            <Typography>Time: {blackTime}s</Typography>
-            <Typography>Captured: {captured.black}</Typography>
-            {blackCards.length > 0 && (
-              <>
-                <Typography variant="subtitle2" style={{ marginTop: 6 }}>
-                  Black Cards
-                </Typography>
-                {blackCards.map((card) => (
-                  <Paper
-                    key={card.card_id}
-                    style={{ padding: "4px", marginTop: "4px" }}
-                    variant="outlined"
-                  >
-                    <Typography>
-                      {card.name} (Cost: {card.cost})
-                    </Typography>
-                    <Typography variant="body2">{card.description}</Typography>
-                  </Paper>
-                ))}
-              </>
-            )}
-          </Paper>
+          <PlayerPanel 
+            playerData={blackPlayerData}
+            time={blackTime}
+            captured={captured.black}
+            cards={blackCards}
+            color="Black"
+          />
         </Grid>
 
         <Grid item xs={8}>
@@ -505,65 +496,19 @@ function GoGamePage() {
             scoringData={scoringData}
           />
 
-          <div style={{ marginTop: 20, textAlign: "center" }}>
-            <Button
-              onClick={handlePrev}
-              disabled={currentStep === 0}
-              variant="outlined"
-              style={{ margin: 4 }}
-            >
-              Prev
-            </Button>
-            <Button
-              onClick={handleNext}
-              disabled={currentStep === history.length - 1}
-              variant="outlined"
-              style={{ margin: 4 }}
-            >
-              Next
-            </Button>
-            <Button onClick={handlePass} variant="outlined" style={{ margin: 4 }}>
-              Pass
-            </Button>
-            <Button
-              onClick={handleConfirmResign}
-              variant="outlined"
-              color="error"
-              style={{ margin: 4 }}
-            >
-              Resign
-            </Button>
-            <Button
-              onClick={handleRequestCounting}
-              variant="outlined"
-              style={{ margin: 4 }}
-            >
-              Request Counting
-            </Button>
-            <Button
-              onClick={handleRequestDraw}
-              variant="outlined"
-              style={{ margin: 4 }}
-            >
-              Request Draw
-            </Button>
-            <Button
-              onClick={handleExportSGF}
-              variant="outlined"
-              style={{ margin: 4 }}
-              disabled={!gameOver}
-            >
-              Export SGF
-            </Button>
-            <Button
-              onClick={handleConfirmNewGame}
-              variant="outlined"
-              color="secondary"
-              style={{ margin: 4 }}
-            >
-              New Game
-            </Button>
-          </div>
+          <GameControls
+            onPass={handlePass}
+            onResign={handleConfirmResign}
+            onRequestCounting={handleRequestCounting}
+            onRequestDraw={handleRequestDraw}
+            onExportSGF={handleExportSGF}
+            onNewGame={handleConfirmNewGame}
+            onPrev={handlePrev}
+            onNext={handleNext}
+            gameOver={gameOver}
+            currentStep={currentStep}
+            historyLength={history.length}
+          />
 
           {scoringMode && (
             <ScoringPanel
@@ -592,34 +537,13 @@ function GoGamePage() {
         </Grid>
 
         <Grid item xs={2}>
-          <Paper style={{ padding: "8px", marginBottom: "8px" }}>
-            <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
-              Opponent (White)
-            </Typography>
-            <Typography>Username: {whitePlayerData.player_id}</Typography>
-            <Typography>ELO: {whitePlayerData.elo}</Typography>
-            <Typography>Time: {whiteTime}s</Typography>
-            <Typography>Captured: {captured.white}</Typography>
-            {whiteCards.length > 0 && (
-              <>
-                <Typography variant="subtitle2" style={{ marginTop: 6 }}>
-                  White Cards
-                </Typography>
-                {whiteCards.map((card) => (
-                  <Paper
-                    key={card.card_id}
-                    style={{ padding: "4px", marginTop: "4px" }}
-                    variant="outlined"
-                  >
-                    <Typography>
-                      {card.name} (Cost: {card.cost})
-                    </Typography>
-                    <Typography variant="body2">{card.description}</Typography>
-                  </Paper>
-                ))}
-              </>
-            )}
-          </Paper>
+          <PlayerPanel 
+            playerData={whitePlayerData}
+            time={whiteTime}
+            captured={captured.white}
+            cards={whiteCards}
+            color="White"
+          />
         </Grid>
       </Grid>
 

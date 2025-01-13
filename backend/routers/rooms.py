@@ -86,15 +86,17 @@ def ready_room(room_id: str, current_user: dict = Depends(get_current_user)):
     all_ready = all(v for v in room["ready"].values())
     if len(room["players"]) == 2 and all_ready and not room["started"]:
         # Create the game with player information
-        from backend.services.go_game import GoGame
+        from ..services.go_game import GoGame
         black_player = room["players"][0] if room["whoIsBlack"] == "creator" else room["players"][1]
         white_player = room["players"][1] if room["whoIsBlack"] == "creator" else room["players"][0]
         
+        # Initialize game with proper player tracking
         game = GoGame(
             board_size=room["boardSize"],
             komi=6.5,
             black_player=black_player,
-            white_player=white_player
+            white_player=white_player,
+            players=[black_player, white_player]  # Explicitly track both players
         )
         
         # Initialize timers based on room settings
@@ -102,18 +104,19 @@ def ready_room(room_id: str, current_user: dict = Depends(get_current_user)):
             "black": {
                 "main_time": room["mainTime"],
                 "byo_yomi": room["byoYomiTime"],
-                "periods": room["byoYomiPeriods"]
+                "periods": room["byoYomiPeriods"],
+                "last_update": time.time()
             },
             "white": {
                 "main_time": room["mainTime"],
                 "byo_yomi": room["byoYomiTime"],
-                "periods": room["byoYomiPeriods"]
-            },
-            "last_update": time.time()
+                "periods": room["byoYomiPeriods"],
+                "last_update": time.time()
+            }
         }
         
         # Store the game in matches
-        from backend.routers.matches import matches
+        from .matches import matches
         match_id = str(uuid.uuid4())
         matches[match_id] = {
             "game": game,
@@ -149,8 +152,15 @@ def delete_room(room_id: str, current_user: dict = Depends(get_current_user)):
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
     
+    room = rooms[room_id]
+    
+    # If room has no players, allow deletion by anyone
+    if not room["players"]:
+        del rooms[room_id]
+        return {"deleted": True}
+    
     # Only the creator can delete the room
-    if current_user["username"] != rooms[room_id]["players"][0]:
+    if current_user["username"] != room["players"][0]:
         raise HTTPException(status_code=403, detail="Only the room creator can delete the room")
     
     del rooms[room_id]
@@ -160,8 +170,6 @@ def delete_room(room_id: str, current_user: dict = Depends(get_current_user)):
 def debug_join_room(room_id: str, current_user: dict = Depends(get_current_user)):
     """Debug endpoint to join as second player and start game immediately"""
     username = current_user["username"]
-    if username != "test":
-        raise HTTPException(status_code=403, detail="Debug join only available for test user")
         
     if room_id not in rooms:
         raise HTTPException(status_code=404, detail="Room not found")
@@ -174,13 +182,62 @@ def debug_join_room(room_id: str, current_user: dict = Depends(get_current_user)
             room["players"][1] = username
             room["ready"][username] = True
         else:
+            # Add current user as both players
             room["players"].append(username)
             room["ready"][username] = True
+            if len(room["players"]) == 1:
+                # Add same user as second player
+                room["players"].append(username)
+                room["ready"][username] = True
             
     # Mark both players as ready
     for player in room["players"]:
         room["ready"][player] = True
         
-    # Start game immediately
+    # Start game using normal initialization flow
+    from ..services.go_game import GoGame
+    
+    # Ensure there are exactly 2 players
+    if len(room["players"]) != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot start game - need exactly 2 players"
+        )
+        
+    black_player = room["players"][0] if room["whoIsBlack"] == "creator" else room["players"][1]
+    white_player = room["players"][1] if room["whoIsBlack"] == "creator" else room["players"][0]
+    
+    game = GoGame(
+        board_size=room["boardSize"],
+        komi=6.5,
+        black_player=black_player,
+        white_player=white_player
+    )
+    
+    # Initialize timers based on room settings
+    game.timers = {
+        "black": {
+            "main_time": room["mainTime"],
+            "byo_yomi": room["byoYomiTime"],
+            "periods": room["byoYomiPeriods"],
+            "last_update": time.time()
+        },
+        "white": {
+            "main_time": room["mainTime"],
+            "byo_yomi": room["byoYomiTime"],
+            "periods": room["byoYomiPeriods"],
+            "last_update": time.time()
+        }
+    }
+    
+    # Store the game in matches
+    from .matches import matches
+    match_id = str(uuid.uuid4())
+    matches[match_id] = {
+        "game": game,
+        "players": room["players"],
+        "start_time": time.time()
+    }
+    
     room["started"] = True
-    return {"started": True, "match_id": "debug-match"}
+    return {"started": True, "match_id": match_id}

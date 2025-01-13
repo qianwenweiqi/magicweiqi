@@ -1,13 +1,14 @@
 # backend/services/go_game.py
 import hashlib
 import copy
+import time
 
 def finalize_game(match_id, game):
     # TODO: ELO计算/存储等
     pass
 
 class GoGame:
-    def __init__(self, board_size=19, komi=6.5, black_player=None, white_player=None):
+    def __init__(self, board_size=19, komi=6.5, black_player=None, white_player=None, players=None):
         self.board_size = board_size
         self.komi = komi
         self.board = [[None for _ in range(board_size)] for _ in range(board_size)]
@@ -17,25 +18,25 @@ class GoGame:
         self.passes = 0
         self.game_over = False
         self.winner = None
+        self.timers = {
+            "black": {
+                "main_time": 0,
+                "byo_yomi": 0,
+                "periods": 0,
+                "last_update": None
+            },
+            "white": {
+                "main_time": 0,
+                "byo_yomi": 0,
+                "periods": 0,
+                "last_update": None
+            }
+        }
         
         # Player information
         self.black_player = black_player
         self.white_player = white_player
-        
-        # Timer management
-        self.timers = {
-            "black": {
-                "main_time": 600,  # 10 minutes in seconds
-                "byo_yomi": 30,
-                "periods": 3
-            },
-            "white": {
-                "main_time": 600,
-                "byo_yomi": 30,
-                "periods": 3
-            },
-            "last_update": None
-        }
+        self.players = players or [black_player, white_player]  # Track all players
 
         # Game state
         self.dead_stones = set()  # (x, y)
@@ -120,9 +121,43 @@ class GoGame:
         self.board[x][y] = None
         return True, ""
 
+    def update_timers(self):
+        """Update timers based on current time"""
+        if self.game_over:
+            return
+
+        current_time = time.time()
+        player = self.current_player
+        opponent = "white" if player == "black" else "black"
+        
+        # Update opponent's timer first
+        if self.timers[opponent]["last_update"]:
+            elapsed = current_time - self.timers[opponent]["last_update"]
+            if self.timers[opponent]["main_time"] > 0:
+                self.timers[opponent]["main_time"] = max(0, self.timers[opponent]["main_time"] - elapsed)
+            elif self.timers[opponent]["byo_yomi"] > 0:
+                self.timers[opponent]["byo_yomi"] = max(0, self.timers[opponent]["byo_yomi"] - elapsed)
+                if self.timers[opponent]["byo_yomi"] <= 0:
+                    self.timers[opponent]["periods"] -= 1
+                    if self.timers[opponent]["periods"] > 0:
+                        self.timers[opponent]["byo_yomi"] = self.timers[opponent]["byo_yomi"]
+                    else:
+                        self.game_over = True
+                        self.winner = f"{player} wins by timeout"
+                        finalize_game("<some-match-id>", self)
+                        return
+
+        # Update current player's timer
+        self.timers[player]["last_update"] = current_time
+
     def play_move(self, x, y):
         if self.game_over:
             return False, "Game is over."
+
+        # Update timers before processing move
+        self.update_timers()
+        if self.game_over:
+            return False, self.winner
 
         if x is None and y is None:
             self.passes += 1
@@ -132,6 +167,7 @@ class GoGame:
                 finalize_game("<some-match-id>", self)
             else:
                 self.current_player = "white" if self.current_player == "black" else "black"
+                self.update_timers()
             return True, "Pass"
 
         valid, msg = self.is_valid_move(x, y, self.current_player)
@@ -155,6 +191,7 @@ class GoGame:
 
         self.current_player = "white" if self.current_player == "black" else "black"
         self.passes = 0
+        self.update_timers()
         return True, "Move accepted"
 
     def resign(self, player):

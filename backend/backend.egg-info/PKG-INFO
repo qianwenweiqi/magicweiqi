@@ -1,0 +1,15 @@
+Metadata-Version: 2.2
+Name: backend
+Version: 0.1
+Requires-Python: >=3.8
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: websockets
+Requires-Dist: python-jose[cryptography]
+Requires-Dist: passlib[bcrypt]
+Requires-Dist: python-multipart
+Requires-Dist: sqlalchemy
+Requires-Dist: pydantic
+Requires-Dist: python-dotenv
+Dynamic: requires-dist
+Dynamic: requires-python

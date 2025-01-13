@@ -1,7 +1,8 @@
 // frontend/src/components/RoomCreationModal.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { API_BASE_URL } from "../config/config";
+import { useNavigate } from "react-router-dom";
 import {
   Dialog,
   DialogTitle,
@@ -18,15 +19,38 @@ import {
 } from "@mui/material";
 
 function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) {
+  const navigate = useNavigate();
+  const [ws, setWs] = useState(null);
   const [eloMin, setEloMin] = useState(0);
   const [eloMax, setEloMax] = useState(9999);
+  const [createdRoomId, setCreatedRoomId] = useState(null);
+
+  useEffect(() => {
+    if (!createdRoomId) return;
+
+    const websocket = new WebSocket(`${API_BASE_URL.replace('http', 'ws').replace('/api/v1', '')}/ws/rooms/${createdRoomId}`);
+    setWs(websocket);
+
+    websocket.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'room_update' && data.players.length === 2) {
+        // Close modal and redirect to game when second player joins
+        onClose(false);
+        navigate(`/game/${createdRoomId}`);
+      }
+    };
+
+    return () => {
+      websocket.close();
+    };
+  }, [createdRoomId, navigate, onClose]);
+
   const [whoIsBlack, setWhoIsBlack] = useState("creator");
   const [timeRule, setTimeRule] = useState("absolute");
   const [mainTime, setMainTime] = useState(300);
   const [byoYomiPeriods, setByoYomiPeriods] = useState(3);
   const [byoYomiTime, setByoYomiTime] = useState(30);
   const [isWaiting, setIsWaiting] = useState(false);
-  const [createdRoomId, setCreatedRoomId] = useState(null);
 
   const handleCreate = async () => {
     const config = {
@@ -45,17 +69,28 @@ function RoomCreationModal({ open, onClose, onCreate, onDebugStart, username }) 
     setCreatedRoomId(roomId);
   };
 
-  const handleClose = () => {
+  const handleClose = async () => {
     if (isWaiting && createdRoomId) {
       // Clean up the room if waiting is canceled
       const token = localStorage.getItem("token");
-      axios.delete(`${API_BASE_URL}/rooms/${createdRoomId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      }).catch(console.error);
+      try {
+        await axios.delete(`${API_BASE_URL}/rooms/${createdRoomId}`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        // Refresh room list after successful deletion
+        if (typeof onClose === 'function') {
+          onClose(true); // Pass true to indicate refresh is needed
+        }
+      } catch (error) {
+        console.error('Error deleting room:', error);
+      }
+    } else {
+      if (typeof onClose === 'function') {
+        onClose(false); // Pass false for normal close
+      }
     }
     setIsWaiting(false);
     setCreatedRoomId(null);
-    onClose();
   };
 
   const handleDebugStart = async () => {

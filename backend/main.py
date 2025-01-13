@@ -1,12 +1,13 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from uuid import uuid4
+from fastapi.websockets import WebSocketDisconnect
 
 # Include your routers:
-from backend.routers.matches import router as matches_router
-from backend.routers.rooms import router as rooms_router
-from backend.auth import get_current_user, verify_password, get_password_hash, create_access_token, user_table
+from .routers.matches import router as matches_router
+from .routers.rooms import router as rooms_router
+from .auth import get_current_user, verify_password, get_password_hash, create_access_token, user_table
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -14,11 +15,47 @@ app = FastAPI()
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Adjust for your frontend
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Allow both localhost and 127.0.0.1
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# WebSocket manager
+class ConnectionManager:
+    def __init__(self):
+        self.active_connections: dict[str, WebSocket] = {}
+
+    async def connect(self, room_id: str, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections[room_id] = websocket
+
+    def disconnect(self, room_id: str):
+        if room_id in self.active_connections:
+            del self.active_connections[room_id]
+
+    async def send_message(self, room_id: str, message: str):
+        if room_id in self.active_connections:
+            await self.active_connections[room_id].send_text(message)
+
+manager = ConnectionManager()
+
+@app.websocket("/ws/rooms/{room_id}")
+async def websocket_endpoint(websocket: WebSocket, room_id: str):
+    # Set CORS headers for WebSocket connection
+    origin = websocket.headers.get("origin")
+    if origin not in ["http://localhost:3000", "http://127.0.0.1:3000"]:
+        await websocket.close(code=1008)  # Policy Violation
+        return
+        
+    await websocket.accept()
+    await manager.connect(room_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            await manager.send_message(room_id, f"Message received: {data}")
+    except WebSocketDisconnect:
+        manager.disconnect(room_id)
 
 class UserCreate(BaseModel):
     username: str
