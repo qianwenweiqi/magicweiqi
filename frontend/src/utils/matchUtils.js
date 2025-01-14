@@ -1,9 +1,38 @@
+// frontend/src/utils/matchUtils.js
 import axios from "axios";
 import { API_BASE_URL } from "../config/config";
 
 export const createMatch = async (config) => {
   const token = localStorage.getItem("token");
   
+  // 检查用户是否已经在房间中
+  try {
+    const currentRoomRes = await axios.get(
+      `${API_BASE_URL}/api/v1/rooms/current`,
+      {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+    
+    if (currentRoomRes.data?.room_id) {
+      throw new Error('Already in another room');
+    }
+  } catch (error) {
+    // 404表示用户不在任何房间中，是正常情况
+    if (error.response?.status === 404) {
+      // 继续创建房间
+    } else if (error.response?.status === 400) {
+      // 400表示业务逻辑错误，比如已经在其他房间
+      throw new Error(error.response.data?.detail || 'Already in another room');
+    } else {
+      // 其他错误(如500)不应该阻止创建房间
+      console.warn('Error checking current room:', error);
+    }
+  }
+
   // Validate required fields
   const requiredFields = [
     'eloMin', 'eloMax', 'whoIsBlack', 'timeRule', 
@@ -18,16 +47,19 @@ export const createMatch = async (config) => {
   }
 
   // Log the config being sent
-    console.log('Creating room with config:', config);
-    console.log('Request headers:', {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    });
+  console.log('Creating room with config:', config);
+  console.log('Request headers:', {
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json'
+  });
 
-    try {
+  try {
     console.log('Sending room creation request with config:', config);
+    // -----------------------------
+    // 这里改成 /api/v1/rooms
+    // -----------------------------
     const response = await axios.post(
-      `${API_BASE_URL}/rooms`,
+      `${API_BASE_URL}/api/v1/rooms`,
       config,
       {
         headers: {

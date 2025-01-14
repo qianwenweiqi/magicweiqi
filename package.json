@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "antd": "^5.23.1",
+    "react-scripts": "^5.0.1",
+    "socket.io-client": "^4.8.1"
+  }
+}

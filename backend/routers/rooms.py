@@ -1,52 +1,88 @@
 # backend/routers/rooms.py
-from fastapi import APIRouter, HTTPException, Depends, Request, WebSocket
+
+from fastapi import APIRouter, HTTPException, Depends
 from backend.auth import get_current_user
 import uuid
 import time
 import random
-import json
+import logging
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
-rooms = {}  # room_id -> { config..., players: [username], ready: {username: bool}, started: bool, timer: int, match_id: str }
+rooms = {}  # room_id -> { players:[], ready:{}, started:bool, match_id:str, ... }
 
-@router.get("/rooms")
-async def list_rooms():
-    import logging
-    logger = logging.getLogger(__name__)
-    
+async def broadcast_update(room_id: str = None):
+    """
+    广播:
+      1) 给lobby => type='lobby_update' + 所有rooms
+      2) 若room_id => 给此房间 => type='room_update'
+    """
+    from backend.main import sio
+    from backend.services.websocket_manager import room_manager
+
     try:
-        logger.info("Listing all active rooms")
+        # 1) 整理rooms列表 => 发给lobby
         room_list = []
-        
         for rid, rinfo in rooms.items():
-            # Get detailed player info
-            players = [get_player_info(p) for p in rinfo["players"]]
-            
-            # Calculate room age
+            players_info = [{"username": p, "elo":1500} for p in rinfo["players"]]
             age = time.time() - rinfo["timer"]
-            
-            room_list.append({
+            room_data = {
                 "room_id": rid,
                 "eloMin": rinfo["eloMin"],
                 "eloMax": rinfo["eloMax"],
-                "players": players,  # Now includes player ELO
+                "players": players_info,
                 "started": rinfo["started"],
-                "age": int(age),  # Room age in seconds
+                "age": int(age),
                 "match_id": rinfo.get("match_id"),
                 "timeRule": rinfo["timeRule"],
                 "mainTime": rinfo["mainTime"],
                 "byoYomiPeriods": rinfo["byoYomiPeriods"],
                 "byoYomiTime": rinfo["byoYomiTime"],
                 "whoIsBlack": rinfo["whoIsBlack"],
-                "ready": rinfo["ready"]  # Show ready status
-            })
-        
-        logger.info(f"Found {len(room_list)} active rooms")
-        return {"rooms": room_list}
+                "ready": rinfo["ready"],
+                "deleting": rinfo.get("deleting", False),
+                "lastUpdateTime": int(time.time())
+            }
+            room_list.append(room_data)
+
+        lobby_update = {
+            "type": "lobby_update",
+            "rooms": room_list,
+            "lastUpdateTime": int(time.time())
+        }
+        await sio.emit("lobby_update", lobby_update, room='lobby')
+
+        # 2) 如果指定room_id, 给该房间发 room_update
+        if room_id and room_id in rooms:
+            r = rooms[room_id]
+            players_info = [{"username": p, "elo":1500} for p in r["players"]]
+            single_data = {
+                "room_id": room_id,
+                "eloMin": r["eloMin"],
+                "eloMax": r["eloMax"],
+                "players": players_info,
+                "started": r["started"],
+                "timer": r["timer"],
+                "match_id": r.get("match_id"),
+                "timeRule": r["timeRule"],
+                "mainTime": r["mainTime"],
+                "byoYomiPeriods": r["byoYomiPeriods"],
+                "byoYomiTime": r["byoYomiTime"],
+                "whoIsBlack": r["whoIsBlack"],
+                "ready": r["ready"],
+                "deleting": r.get("deleting", False),
+                "lastUpdateTime": int(time.time())
+            }
+            room_update_msg = {
+                "type": "room_update",
+                "room_id": room_id,
+                "data": single_data
+            }
+            await sio.emit("room_update", room_update_msg, room=room_id)
     except Exception as e:
-        logger.error(f"Error listing rooms: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to list rooms")
+        logger.error(f"Error in broadcast_update: {str(e)}")
+
 
 from pydantic import BaseModel
 
@@ -61,25 +97,52 @@ class RoomConfig(BaseModel):
     boardSize: int
     handicap: int
 
+@router.get("/rooms")
+async def list_rooms():
+    """
+    Http接口: 返回rooms
+    """
+    try:
+        room_list = []
+        for rid, rinfo in rooms.items():
+            players_info = [{"username": p, "elo":1500} for p in rinfo["players"]]
+            age = time.time() - rinfo["timer"]
+            room_list.append({
+                "room_id": rid,
+                "eloMin": rinfo["eloMin"],
+                "eloMax": rinfo["eloMax"],
+                "players": players_info,
+                "started": rinfo["started"],
+                "age": int(age),
+                "match_id": rinfo.get("match_id"),
+                "timeRule": rinfo["timeRule"],
+                "mainTime": rinfo["mainTime"],
+                "byoYomiPeriods": rinfo["byoYomiPeriods"],
+                "byoYomiTime": rinfo["byoYomiTime"],
+                "whoIsBlack": rinfo["whoIsBlack"],
+                "ready": rinfo["ready"]
+            })
+        return {"rooms": room_list}
+    except Exception as e:
+        logger.error(f"Error listing rooms: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to list rooms")
+
 @router.post("/rooms")
 async def create_room(config: RoomConfig, current_user: dict = Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    
+    """
+    创建房间
+    """
     try:
         data = config.dict()
         logger.info(f"Creating room with config: {data}")
-        
         room_id = str(uuid.uuid4())
         username = current_user["username"]
-        
-        # Validate user isn't already in another room
-        for rid, room in rooms.items():
-            if username in room["players"] and not room["started"]:
-                logger.warning(f"User {username} already in room {rid}")
-                raise HTTPException(status_code=400, detail="Already in another room")
-        
-        logger.info(f"Creating room {room_id} for user {username}")
+
+        for rid, rinfo in rooms.items():
+            if not rinfo["started"]:
+                if username in rinfo["players"]:
+                    raise HTTPException(status_code=400, detail="Already in another room")
+
         rooms[room_id] = {
             "eloMin": data["eloMin"],
             "eloMax": data["eloMax"],
@@ -90,191 +153,81 @@ async def create_room(config: RoomConfig, current_user: dict = Depends(get_curre
             "byoYomiTime": data["byoYomiTime"],
             "boardSize": data["boardSize"],
             "handicap": data["handicap"],
-            "players": [username],  # 创建者
+            "players": [username],
             "ready": {username: False},
             "started": False,
             "timer": time.time(),
             "match_id": None
         }
 
-        # Send update before returning to ensure clients are notified
-        await send_room_update(room_id)
+        await broadcast_update(room_id)
         logger.info(f"Room {room_id} created successfully")
-        
         return {"room_id": room_id}
     except Exception as e:
         logger.error(f"Error creating room: {str(e)}")
-        if room_id in rooms:
-            del rooms[room_id]  # Clean up on error
         raise
-
-def get_player_info(username: str):
-    # Mock
-    return {
-        "username": username,
-        "elo": 1500
-    }
-
-async def send_room_update(room_id: str, target_websocket: WebSocket = None):
-    """
-    Send a room update to either a specific WebSocket connection or broadcast to all connections.
-    If target_websocket is provided, send only to that connection.
-    Otherwise, broadcast to all connections in the room.
-    """
-    from backend.services.match_service import get_matches
-    from backend.main import room_manager
-    import logging
-    
-    logger = logging.getLogger(__name__)
-    
-    try:
-        if room_id not in rooms:
-            logger.warning(f"Room {room_id} not found")
-            return
-            
-        room = rooms[room_id]
-        age = time.time() - room["timer"]
-        
-        update = {
-            "type": "room_update",
-            "players": [get_player_info(p) for p in room["players"]],
-            "ready": room["ready"],
-            "started": room["started"],
-            "match_id": room.get("match_id"),
-            "age": int(age),
-            "eloMin": room["eloMin"],
-            "eloMax": room["eloMax"],
-            "timeRule": room["timeRule"],
-            "mainTime": room["mainTime"],
-            "byoYomiPeriods": room["byoYomiPeriods"],
-            "byoYomiTime": room["byoYomiTime"],
-            "whoIsBlack": room["whoIsBlack"],
-            "deleting": room.get("deleting", False)
-        }
-        
-        if target_websocket:
-            logger.info(f"Sending room update to specific client in room {room_id}")
-            await room_manager.send_message(room_id, update, target_websocket=target_websocket)
-            logger.info(f"Room update sent to specific client in room {room_id}")
-        else:
-            logger.info(f"Broadcasting room update to all clients in room {room_id}")
-            await room_manager.send_message(room_id, update)
-            logger.info(f"Room update broadcast complete for room {room_id}")
-            
-    except Exception as e:
-        logger.error(f"Error sending room update for room {room_id}: {str(e)}")
 
 @router.post("/rooms/{room_id}/join")
 async def join_room(room_id: str, current_user: dict = Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         username = current_user["username"]
-        logger.info(f"User {username} attempting to join room {room_id}")
-        
         if room_id not in rooms:
-            logger.warning(f"Room {room_id} not found")
             raise HTTPException(status_code=404, detail="Room not found")
-        
         room = rooms[room_id]
-        
-        # Validate user isn't already in another room
-        for rid, r in rooms.items():
-            if rid != room_id and username in r["players"] and not r["started"]:
-                logger.warning(f"User {username} already in room {rid}")
+
+        for rid, rinfo in rooms.items():
+            if rid != room_id and username in rinfo["players"] and not rinfo["started"]:
                 raise HTTPException(status_code=400, detail="Already in another room")
-        
+
         if room["started"]:
-            logger.warning(f"Room {room_id} has already started")
             raise HTTPException(status_code=400, detail="Room has started")
-            
         if len(room["players"]) >= 2:
-            logger.warning(f"Room {room_id} is full")
             raise HTTPException(status_code=400, detail="Room is full")
 
-        if username in room["players"]:
-            logger.info(f"User {username} already in room {room_id}")
-            return {"joined": True}
+        if username not in room["players"]:
+            room["players"].append(username)
+            room["ready"][username] = False
 
-        logger.info(f"Adding user {username} to room {room_id}")
-        room["players"].append(username)
-        room["ready"][username] = False
-        
-        # Send update before returning to ensure clients are notified
-        await send_room_update(room_id)
-        logger.info(f"User {username} successfully joined room {room_id}")
-        
+        await broadcast_update(room_id)
+        logger.info(f"User {username} joined room {room_id} successfully")
         return {"joined": True}
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error joining room {room_id}: {str(e)}")
-        # Clean up if we partially added the user
-        if room_id in rooms and username in rooms[room_id]["players"]:
-            rooms[room_id]["players"].remove(username)
-            if username in rooms[room_id]["ready"]:
-                del rooms[room_id]["ready"][username]
-            await send_room_update(room_id)
-        raise HTTPException(status_code=500, detail="Failed to join room")
+        raise
 
 @router.post("/rooms/{room_id}/ready")
 async def ready_room(room_id: str, current_user: dict = Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         username = current_user["username"]
-        logger.info(f"User {username} attempting to mark ready in room {room_id}")
-        
         if room_id not in rooms:
-            logger.warning(f"Room {room_id} not found")
             raise HTTPException(status_code=404, detail="Room not found")
-        
         room = rooms[room_id]
         if username not in room["players"]:
-            logger.warning(f"User {username} not in room {room_id}")
             raise HTTPException(status_code=400, detail="You are not in the room")
-        
         if room["started"]:
-            logger.warning(f"Cannot mark ready in room {room_id} - game already started")
-            raise HTTPException(status_code=400, detail="Cannot mark ready - game already started")
-        
-        logger.info(f"Marking user {username} as ready in room {room_id}")
+            raise HTTPException(status_code=400, detail="Game already started")
+
         room["ready"][username] = True
-        
-        # Send update after marking ready
-        await send_room_update(room_id)
-        logger.info(f"User {username} marked ready in room {room_id}")
+        await broadcast_update(room_id)
 
         all_ready = all(v for v in room["ready"].values())
-        if len(room["players"]) == 2 and all_ready:
-            # If match already exists, return it
+        if len(room["players"])==2 and all_ready:
             if room["match_id"]:
-                logger.info(f"Room {room_id} already has match {room['match_id']}")
                 return {"started": True, "match_id": room["match_id"]}
-            
-            # Only create new match if not already started
             if not room["started"]:
                 try:
-                    from backend.services.match_service import get_matches
-                    logger.info(f"Creating new match for room {room_id}")
-
-                    # Determine black and white players
-                    if room["whoIsBlack"] == "creator":
+                    from backend.services.match_service import create_match_internal
+                    from backend.models import CreateMatch
+                    if room["whoIsBlack"]=="creator":
                         black_player = room["players"][0]
                         white_player = room["players"][1]
-                    elif room["whoIsBlack"] == "opponent":
+                    elif room["whoIsBlack"]=="opponent":
                         black_player = room["players"][1]
                         white_player = room["players"][0]
-                    else:  # random
+                    else:
                         black_player = random.choice(room["players"])
-                        white_player = room["players"][1] if black_player == room["players"][0] else room["players"][0]
-                    
-                    logger.info(f"Black player: {black_player}, White player: {white_player}")
-
-                    from backend.models import CreateMatch
-                    from backend.services.match_service import create_match_internal
+                        white_player = (room["players"][1] if black_player==room["players"][0]
+                                        else room["players"][0])
 
                     match_data = CreateMatch(
                         board_size=room["boardSize"],
@@ -286,114 +239,75 @@ async def ready_room(room_id: str, current_user: dict = Depends(get_current_user
                         komi=6.5,
                         handicap=0
                     )
-
-                    match_response = create_match_internal(match_data)
-                    match_id = match_response["match_id"]
-                    logger.info(f"Created match {match_id} for room {room_id}")
-                    
+                    resp = create_match_internal(match_data)
                     room["started"] = True
-                    room["match_id"] = match_id
+                    room["match_id"] = resp["match_id"]
 
-                    # Send update before returning to ensure clients are notified
-                    await send_room_update(room_id)
-                    logger.info(f"Room {room_id} update sent with new match {match_id}")
-                    
-                    return {"started": True, "match_id": match_id}
+                    await broadcast_update(room_id)
+                    return {"started": True, "match_id": resp["match_id"]}
                 except Exception as e:
                     logger.error(f"Error creating match for room {room_id}: {str(e)}")
-                    # Reset ready state on error
-                    room["ready"] = {player: False for player in room["players"]}
-                    await send_room_update(room_id)
                     raise HTTPException(status_code=500, detail="Failed to create match")
 
         return {"started": False}
-    except HTTPException:
-        raise
     except Exception as e:
-        logger.error(f"Error marking ready in room {room_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to mark ready")
+        logger.error(f"Error readying in room {room_id}: {str(e)}")
+        raise
 
 @router.post("/rooms/{room_id}/cancel")
 async def cancel_room(room_id: str, current_user: dict = Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         username = current_user["username"]
-        logger.info(f"User {username} attempting to cancel room {room_id}")
-        
         if room_id not in rooms:
-            logger.warning(f"Room {room_id} not found")
             raise HTTPException(status_code=404, detail="Room not found")
-        
         room = rooms[room_id]
         if username not in room["players"]:
-            logger.warning(f"User {username} not in room {room_id}")
             raise HTTPException(status_code=400, detail="You are not in the room")
-        
         if room["started"]:
-            logger.warning(f"Cannot cancel room {room_id} - game already started")
-            raise HTTPException(status_code=400, detail="Cannot cancel - game already started")
-        
-        logger.info(f"Removing user {username} from room {room_id}")
+            raise HTTPException(status_code=400, detail="Cannot cancel - game started")
+
         room["players"].remove(username)
         del room["ready"][username]
-        
-        # Send update before cleanup to ensure clients are notified
-        await send_room_update(room_id)
-        logger.info(f"User {username} successfully removed from room {room_id}")
-        
-        # Clean up empty room
-        if len(room["players"]) == 0:
-            logger.info(f"Room {room_id} is empty, deleting")
+        if len(room["players"])==0:
             del rooms[room_id]
-        
+        else:
+            await broadcast_update(room_id)
         return {"cancelled": True}
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error canceling room {room_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to cancel room")
+        raise
+
+@router.get("/rooms/current")
+async def get_current_room(current_user: dict = Depends(get_current_user)):
+    username = current_user["username"]
+    logger.info(f"Checking current room for user {username}")
+    for rid, rinfo in rooms.items():
+        if username in rinfo["players"]:
+            logger.info(f"Found user {username} in room {rid}")
+            return {"room_id": rid}
+    logger.info(f"No room found for user {username}")
+    # 直接抛 404
+    raise HTTPException(status_code=404, detail="Not in any room")
 
 @router.delete("/rooms/{room_id}")
 async def delete_room(room_id: str, current_user: dict = Depends(get_current_user)):
-    import logging
-    logger = logging.getLogger(__name__)
-    
     try:
         username = current_user["username"]
-        logger.info(f"User {username} attempting to delete room {room_id}")
-        
         if room_id not in rooms:
-            logger.warning(f"Room {room_id} not found")
             raise HTTPException(status_code=404, detail="Room not found")
-        
         room = rooms[room_id]
         if room["started"]:
-            logger.warning(f"Cannot delete room {room_id} - game already started")
-            raise HTTPException(status_code=400, detail="Cannot delete - game already started")
-        
+            raise HTTPException(status_code=400, detail="Cannot delete - game started")
         if not room["players"]:
-            logger.info(f"Room {room_id} is empty, deleting")
             del rooms[room_id]
+            await broadcast_update()
             return {"deleted": True}
-        
         if username != room["players"][0]:
-            logger.warning(f"User {username} is not the creator of room {room_id}")
             raise HTTPException(status_code=403, detail="Only the creator can delete the room")
-        
-        # Send final update before deletion
         room["deleting"] = True
-        await send_room_update(room_id)
-        logger.info(f"Sent final update for room {room_id}")
-        
-        # Delete the room
+        await broadcast_update(room_id)
         del rooms[room_id]
-        logger.info(f"Room {room_id} deleted successfully")
-        
         return {"deleted": True}
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"Error deleting room {room_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to delete room")
+        raise

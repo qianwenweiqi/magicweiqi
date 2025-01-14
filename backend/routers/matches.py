@@ -53,6 +53,7 @@ async def make_move(match_id: str, move: Move, current_user: dict = Depends(get_
     from backend.main import game_manager
     game_state = {
         "type": "game_update",
+        "match_id": match_id,  # ★修复：加入match_id字段
         "board": game.board,
         "current_player": game.current_player,
         "black_player": game.black_player,
@@ -113,6 +114,7 @@ async def resign_match(match_id: str, req: ResignRequest, current_user: dict = D
     from backend.main import game_manager
     await game_manager.send_message(match_id, {
         "type": "game_update",
+        "match_id": match_id,  # ★修复：加入match_id字段
         "board": game.board,
         "current_player": game.current_player,
         "game_over": game.game_over,
@@ -221,6 +223,7 @@ async def mark_dead_stone_api(match_id: str, xy: dict, current_user: dict = Depe
     from backend.main import game_manager
     await game_manager.send_message(match_id, {
         "type": "game_update",
+        "match_id": match_id,  # ★修复：加入match_id字段
         "board": game.board,
         "current_player": game.current_player,
         "game_over": game.game_over,
@@ -251,6 +254,7 @@ async def confirm_scoring_api(match_id: str, current_user: dict = Depends(get_cu
     from backend.main import game_manager
     await game_manager.send_message(match_id, {
         "type": "game_update",
+        "match_id": match_id,  # ★修复：加入match_id字段
         "board": game.board,
         "current_player": game.current_player,
         "game_over": True,
@@ -293,6 +297,7 @@ async def update_match_status(match_id: str, status: dict, current_user: dict = 
     from backend.main import game_manager
     await game_manager.send_message(match_id, {
         "type": "game_update",
+        "match_id": match_id,  # ★修复：加入match_id字段
         "board": game.board,
         "current_player": game.current_player,
         "game_over": game.game_over,

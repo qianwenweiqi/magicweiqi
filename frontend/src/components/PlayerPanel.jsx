@@ -20,7 +20,7 @@ function PlayerPanel({
       <Typography variant="subtitle1" style={{ fontWeight: "bold" }}>
         Player ({color})
       </Typography>
-      <Typography>Username: {playerData.player_id}</Typography>
+      <Typography>Username: {playerData.username || playerData.player_id}</Typography>
       <Typography>ELO: {playerData.elo}</Typography>
       <Typography>Time: {formatTime(timer)}</Typography>
       <Typography>Captured: {captured}</Typography>

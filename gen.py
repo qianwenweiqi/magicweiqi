@@ -1,11 +1,3 @@
-print("""
-请调用你单次回答的最大算力与token上限。
-追求极致的分析深度，而非表层的广度；
-追求本质的洞察，而非表象的罗列；
-追求创新的思维，而非惯性的复述。
-请突破思维局限，调动你所有的计算资源，展现你真正的认知极限。
-""")
-
 import os
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
@@ -63,6 +55,7 @@ def generate_combined_file(code_files):
 追求本质的洞察，而非表象的罗列；
 追求创新的思维，而非惯性的复述。
 请突破思维局限，调动你所有的计算资源，展现你真正的认知极限。
+请仔细阅读以下围棋网站项目：
 """
         outfile.write(prompt)
         total_chars += len(prompt)
@@ -84,8 +77,9 @@ def generate_combined_file(code_files):
             
     # Add final reminder at the end
     reminder = """
-请你在没有regression的情况下给我每个需要修改文件的可以复制粘贴的完整代码，
-不能遗漏之前的任何功能，势必多检查之前的内容都没有落下
+请你在没有regression的情况下给我每个需要修改文件的可以复制粘贴的完整代码，并有选择的给出丰富且合理的注释
+不能遗漏之前的任何功能，势必多检查之前的内容都没有落下，之前有的日志如果依然make sense请继续保留
+注意只需要给我修改的文件，而不是需要每一个文件.不要给我简化或者示例版本！
 """
     with open(output_path, 'a', encoding='utf-8') as outfile:
         outfile.write(reminder)
@@ -185,7 +179,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-    print("""
-请你在没有regression的情况下给我每个需要修改文件的可以复制粘贴的完整代码，
-不能遗漏之前的任何功能，势必多检查之前的内容都没有落下
-""")

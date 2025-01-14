@@ -21,8 +21,8 @@ if __name__ == "__main__":
     # Disable auto-reload to maintain state
     logger.info("Starting server without auto-reload to maintain match state")
     uvicorn.run(
-        "backend.main:app",
-        host="127.0.0.1",
+        "backend.main:application",
+        host="0.0.0.0",  # 允许所有主机访问
         port=8000,
         reload=False,  # Disable reload to prevent state reinitialization
         log_level="info"

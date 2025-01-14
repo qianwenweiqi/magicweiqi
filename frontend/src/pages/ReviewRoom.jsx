@@ -20,11 +20,11 @@ function ReviewRoom() {
   const [scoringMode, setScoringMode] = useState(false);
 
   const handlePrev = useCallback(() => {
-    setCurrentStep(prev => prev > 0 ? prev - 1 : prev);
+    setCurrentStep((prev) => (prev > 0 ? prev - 1 : prev));
   }, []);
 
   const handleNext = useCallback(() => {
-    setCurrentStep(prev => prev < moves.length ? prev + 1 : prev);
+    setCurrentStep((prev) => (prev < moves.length ? prev + 1 : prev));
   }, [moves.length]);
 
   useEffect(() => {
@@ -40,8 +40,8 @@ function ReviewRoom() {
       }
     };
 
-    window.addEventListener('wheel', handleWheel);
-    return () => window.removeEventListener('wheel', handleWheel);
+    window.addEventListener("wheel", handleWheel);
+    return () => window.removeEventListener("wheel", handleWheel);
   }, [handleNext, handlePrev]);
 
   const handleFileUpload = async (e) => {
@@ -70,7 +70,8 @@ function ReviewRoom() {
     formData.append("file", file);
 
     try {
-      const res = await axios.post(`${API_BASE_URL}/review_sgf`, formData, {
+      // 修正：带上 /api/v1
+      const res = await axios.post(`${API_BASE_URL}/api/v1/review_sgf`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
       const movesData = res.data.moves;
@@ -95,7 +96,6 @@ function ReviewRoom() {
     }
     setBoard(newBoard);
   };
-
 
   const handleRequestCounting = () => {
     if (scoringMode) {
