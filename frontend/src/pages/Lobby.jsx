@@ -140,6 +140,9 @@ function Lobby() {
       );
       console.log("[Lobby] Successfully joined room via REST API");
 
+      // Set isJoiner state
+      dispatch({ type: 'SET_STATE', payload: { isJoiner: true } });
+
       // Join room
       await socketClient.joinRoom(roomId);
       
@@ -164,6 +167,7 @@ function Lobby() {
     dispatch({ type: 'SET_CURRENT_ROOM', payload: null });
     dispatch({ type: 'SET_IS_CREATOR', payload: false });
     dispatch({ type: 'SET_CREATED_ROOM_ID', payload: null });
+    dispatch({ type: 'SET_STATE', payload: { isJoiner: false } });
 
     // Refresh room list
     if (shouldRefresh) {

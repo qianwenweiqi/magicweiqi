@@ -157,9 +157,10 @@ export const RoomProvider = ({ children }) => {
       if (state.createdRoomId === data.room_id) {
         dispatch({ type: 'SET_IS_CREATOR', payload: true });
       }
-      // 如果(我是房主)或者(我的username在players里) => 更新currentRoom
+      // 如果(我是房主)或者(我的username在players里)或者(我刚通过REST API加入了这个房间) => 更新currentRoom
       if (state.createdRoomId === data.room_id
-          || roomData.players.some(p => p.username === username)) {
+          || roomData.players.some(p => p.username === username)
+          || state.isJoiner) {
         dispatch({ type: 'SET_CURRENT_ROOM', payload: roomData });
       }
     }
