@@ -481,6 +481,14 @@ async def resign(sid, data):
     }
     await game_manager.send_message(match_id, game_state)
 
+    # 更新房间状态并广播给大厅
+    from backend.routers.rooms import rooms, broadcast_update
+    for room_id, room_info in rooms.items():
+        if room_info.get("match_id") == match_id:
+            room_info["started"] = False
+            await broadcast_update(room_id)
+            break
+
 @sio.event
 async def mark_dead_stone(sid, data):
     from backend.services.scoring import mark_dead_stone
@@ -574,6 +582,14 @@ async def confirm_scoring(sid, data):
         "scoring_data": scoring_data
     }
     await game_manager.send_message(match_id, game_state)
+
+    # 更新房间状态并广播给大厅
+    from backend.routers.rooms import rooms, broadcast_update
+    for room_id, room_info in rooms.items():
+        if room_info.get("match_id") == match_id:
+            room_info["started"] = False
+            await broadcast_update(room_id)
+            break
 
 @sio.event
 async def update_status(sid, data):

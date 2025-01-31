@@ -90,17 +90,54 @@ def get_match_players(match_id: str):
     }
 
 
-# ============ 移除HTTP方式的落子、认输、标记死子、确认数子、更新对局状态等接口 ============
-# 这些操作已改为WebSocket事件，请前往 backend/main.py 中查看 move_stone、resign、mark_dead_stone等事件。
-#
-# 原先如下HTTP路由已被弃用:
-# @router.post("/matches/{match_id}/move") -> 通过 socket: move_stone
-# @router.post("/matches/{match_id}/resign") -> 通过 socket: resign
-# @router.post("/matches/{match_id}/mark_dead_stone") -> 通过 socket: mark_dead_stone
-# @router.post("/matches/{match_id}/confirm_scoring") -> 通过 socket: confirm_scoring
-# @router.post("/matches/{match_id}/update_status") -> 通过 socket: update_status
-#
-# 保留下列接口: export_sgf, review_sgf(用于文件上传解析)
+# 复盘专用的HTTP落子接口
+@router.post("/matches/{match_id}/move")
+def play_move(match_id: str, data: dict):
+    """
+    复盘专用的落子接口，不需要验证玩家身份
+    """
+    matches = get_matches()
+    if match_id not in matches:
+        raise HTTPException(status_code=404, detail="Match not found")
+    
+    game = matches[match_id]
+    x = data.get("x")
+    y = data.get("y")
+    player = data.get("player")
+    
+    if x is None or y is None or not player:
+        raise HTTPException(status_code=400, detail="Missing required fields")
+        
+    if player not in ["black", "white"]:
+        raise HTTPException(status_code=400, detail="Invalid player color")
+        
+    if game.current_player != player:
+        raise HTTPException(status_code=400, detail="Not player's turn")
+        
+    success, message = game.play_move(x, y)
+    if not success:
+        raise HTTPException(status_code=400, detail=message)
+        
+    return {"success": True, "board": game.board}
+
+@router.delete("/matches/{match_id}")
+def delete_match(match_id: str):
+    """
+    删除一个对局，用于复盘时清理
+    """
+    matches = get_matches()
+    if match_id not in matches:
+        raise HTTPException(status_code=404, detail="Match not found")
+    
+    del matches[match_id]
+    return {"success": True}
+
+# 其他WebSocket事件相关的注释
+# 这些操作已改为WebSocket事件，请前往 backend/main.py 中查看:
+# - resign -> 通过 socket: resign
+# - mark_dead_stone -> 通过 socket: mark_dead_stone
+# - confirm_scoring -> 通过 socket: confirm_scoring
+# - update_status -> 通过 socket: update_status
 
 
 @router.get("/matches/{match_id}/export_sgf")

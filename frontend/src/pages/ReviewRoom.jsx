@@ -1,9 +1,10 @@
 // frontend/src/pages/ReviewRoom.jsx
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Button, Typography } from "@mui/material";
 import GoBoard from "../components/GoBoard";
 import { API_BASE_URL } from "../config/config";
 import axios from "axios";
+import { useGame } from "../context/GameContext";
 
 function ReviewRoom() {
   const boardSize = 19;
@@ -13,11 +14,106 @@ function ReviewRoom() {
 
   const [moves, setMoves] = useState([]);
   const [currentStep, setCurrentStep] = useState(0);
-  const [board, setBoard] = useState(emptyBoard);
   const [error, setError] = useState("");
   const [uploadedFileName, setUploadedFileName] = useState("");
-
   const [scoringMode, setScoringMode] = useState(false);
+  const [gameId, setGameId] = useState(null);
+  const boardHistory = useRef([]);
+
+  const { state: gameState, dispatch: gameDispatch } = useGame();
+  const { board } = gameState;
+
+  // 创建新的游戏实例
+  const createGame = useCallback(async () => {
+    try {
+      // 如果已经有gameId，先删除旧的游戏
+      if (gameId) {
+        await axios.delete(`${API_BASE_URL}/api/v1/matches/${gameId}`);
+        setGameId(null);
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/api/v1/matches`, {
+        black_player: "black",
+        white_player: "white",
+        board_size: boardSize
+      });
+      
+      const newGameId = response.data.match_id;
+      setGameId(newGameId);
+
+      // 清空历史记录
+      boardHistory.current = [emptyBoard.map(row => [...row])];
+
+      return newGameId;
+    } catch (err) {
+      console.error("Error creating game:", err);
+      setError("Failed to create game");
+      return null;
+    }
+  }, [gameId, boardSize]);
+
+  // 执行单步落子并保存棋盘状态
+  const playMove = useCallback(async (step) => {
+    if (!gameId) return;
+
+    try {
+      const { color, x, y } = moves[step];
+      if (x >= 0 && x < boardSize && y >= 0 && y < boardSize) {
+        await axios.post(`${API_BASE_URL}/api/v1/matches/${gameId}/move`, {
+          player: color,
+          x,
+          y
+        });
+        
+        const gameState = await axios.get(`${API_BASE_URL}/api/v1/matches/${gameId}`);
+        if (gameState.data.board) {
+          // 保存这一步的棋盘状态
+          boardHistory.current[step + 1] = gameState.data.board;
+          
+          gameDispatch({ 
+            type: "LOAD_MATCH", 
+            payload: {
+              board: gameState.data.board,
+              current_player: "black",
+              passes: 0,
+              captured: { black: 0, white: 0 },
+              game_over: false,
+              winner: null
+            }
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Error playing move:", err);
+      setError("Failed to play move");
+    }
+  }, [gameId, moves, boardSize, gameDispatch]);
+
+  // 处理步骤变化
+  useEffect(() => {
+    const handleStepChange = async () => {
+      if (currentStep > boardHistory.current.length - 1) {
+        // 需要前进：执行新的落子
+        await playMove(currentStep - 1);
+      } else {
+        // 需要后退：直接使用历史棋盘状态
+        const historicalBoard = boardHistory.current[currentStep];
+        gameDispatch({ 
+          type: "LOAD_MATCH", 
+          payload: {
+            board: historicalBoard,
+            current_player: "black",
+            passes: 0,
+            captured: { black: 0, white: 0 },
+            game_over: false,
+            winner: null
+          }
+        });
+      }
+    };
+
+    handleStepChange();
+  }, [currentStep, playMove, gameDispatch]);
 
   const handlePrev = useCallback(() => {
     setCurrentStep((prev) => (prev > 0 ? prev - 1 : prev));
@@ -26,10 +122,6 @@ function ReviewRoom() {
   const handleNext = useCallback(() => {
     setCurrentStep((prev) => (prev < moves.length ? prev + 1 : prev));
   }, [moves.length]);
-
-  useEffect(() => {
-    renderBoard();
-  }, [currentStep]);
 
   useEffect(() => {
     const handleWheel = (e) => {
@@ -58,7 +150,8 @@ function ReviewRoom() {
         const movesData = JSON.parse(cachedData);
         setMoves(movesData);
         setCurrentStep(0);
-        setBoard(emptyBoard);
+        // 创建新的游戏实例
+        await createGame();
         return;
       } catch (err) {
         console.error("Failed to parse cached data:", err);
@@ -70,7 +163,6 @@ function ReviewRoom() {
     formData.append("file", file);
 
     try {
-      // 修正：带上 /api/v1
       const res = await axios.post(`${API_BASE_URL}/api/v1/review_sgf`, formData, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -79,22 +171,12 @@ function ReviewRoom() {
       localStorage.setItem(`sgf_${file.name}`, JSON.stringify(movesData));
       setMoves(movesData);
       setCurrentStep(0);
-      setBoard(emptyBoard);
+      // 创建新的游戏实例
+      await createGame();
     } catch (err) {
       console.error(err);
       setError(err.response?.data?.detail || "Failed to parse SGF");
     }
-  };
-
-  const renderBoard = () => {
-    const newBoard = emptyBoard.map((row) => [...row]);
-    for (let i = 0; i < currentStep; i++) {
-      const { color, x, y } = moves[i];
-      if (x >= 0 && x < boardSize && y >= 0 && y < boardSize) {
-        newBoard[x][y] = color;
-      }
-    }
-    setBoard(newBoard);
   };
 
   const handleRequestCounting = () => {
@@ -108,6 +190,20 @@ function ReviewRoom() {
   const handleCancelScoring = () => {
     setScoringMode(false);
   };
+
+  // 组件卸载时清理
+  useEffect(() => {
+    return () => {
+      // 重置GameContext
+      gameDispatch({ type: "RESET_GAME" });
+      // 删除游戏实例
+      if (gameId) {
+        axios.delete(`${API_BASE_URL}/api/v1/matches/${gameId}`).catch(err => {
+          console.error("Failed to delete game:", err);
+        });
+      }
+    };
+  }, [gameDispatch, gameId]);
 
   return (
     <div style={{ margin: 10 }}>

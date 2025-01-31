@@ -27,12 +27,24 @@ async def broadcast_update(room_id: str = None):
         for rid, rinfo in rooms.items():
             players_info = [{"username": p, "elo":1500} for p in rinfo["players"]]
             age = time.time() - rinfo["timer"]
+            # 获取游戏状态
+            game_over = False
+            winner = None
+            if rinfo.get("match_id"):
+                from backend.services.match_service import matches
+                if rinfo["match_id"] in matches:
+                    game = matches[rinfo["match_id"]]["game"]
+                    game_over = game.game_over
+                    winner = game.winner
+
             room_data = {
                 "room_id": rid,
                 "eloMin": rinfo["eloMin"],
                 "eloMax": rinfo["eloMax"],
                 "players": players_info,
                 "started": rinfo["started"],
+                "game_over": game_over,
+                "winner": winner,
                 "age": int(age),
                 "match_id": rinfo.get("match_id"),
                 "timeRule": rinfo["timeRule"],
@@ -107,12 +119,24 @@ async def list_rooms():
         for rid, rinfo in rooms.items():
             players_info = [{"username": p, "elo":1500} for p in rinfo["players"]]
             age = time.time() - rinfo["timer"]
+            # 获取游戏状态
+            game_over = False
+            winner = None
+            if rinfo.get("match_id"):
+                from backend.services.match_service import matches
+                if rinfo["match_id"] in matches:
+                    game = matches[rinfo["match_id"]]["game"]
+                    game_over = game.game_over
+                    winner = game.winner
+
             room_list.append({
                 "room_id": rid,
                 "eloMin": rinfo["eloMin"],
                 "eloMax": rinfo["eloMax"],
                 "players": players_info,
                 "started": rinfo["started"],
+                "game_over": game_over,
+                "winner": winner,
                 "age": int(age),
                 "match_id": rinfo.get("match_id"),
                 "timeRule": rinfo["timeRule"],
@@ -296,8 +320,17 @@ async def delete_room(room_id: str, current_user: dict = Depends(get_current_use
         if room_id not in rooms:
             raise HTTPException(status_code=404, detail="Room not found")
         room = rooms[room_id]
-        if room["started"]:
-            raise HTTPException(status_code=400, detail="Cannot delete - game started")
+        # 检查游戏是否结束
+        game_over = False
+        if room.get("match_id"):
+            from backend.services.match_service import matches
+            if room["match_id"] in matches:
+                game = matches[room["match_id"]]["game"]
+                game_over = game.game_over
+
+        # 只有未开始或已结束的游戏可以删除
+        if room["started"] and not game_over:
+            raise HTTPException(status_code=400, detail="Cannot delete - game in progress")
         if not room["players"]:
             del rooms[room_id]
             await broadcast_update()

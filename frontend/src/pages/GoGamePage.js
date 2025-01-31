@@ -8,6 +8,7 @@ import GameControls from "../components/GameControls";
 import GoBoard from "../components/GoBoard";
 import PlayerPanel from "../components/PlayerPanel";
 import ScoringPanel from "../components/ScoringPanel";
+import ResignConfirmModal from "../components/ResignConfirmModal";
 import { API_BASE_URL } from "../config/config";
 import socketClient from "../services/socketClient";
 
@@ -201,8 +202,8 @@ function GoGamePage() {
               socketClient.sendGameAction(matchId, "pass");
             }}
             onResign={() => {
-              console.log("[GoGamePage] Resign => resign");
-              socketClient.sendGameAction(matchId, "resign", { player: currentPlayer });
+              console.log("[GoGamePage] Opening resign confirmation modal");
+              gameDispatch({ type: "SET_CONFIRM_RESIGN_OPEN", payload: true });
             }}
             onRequestCounting={() => {
               console.log("[GoGamePage] confirm_scoring => scoringMode");
@@ -271,6 +272,16 @@ function GoGamePage() {
               Game Over: {winner}
             </Typography>
           )}
+
+          <ResignConfirmModal
+            open={confirmResignOpen}
+            onClose={() => gameDispatch({ type: "SET_CONFIRM_RESIGN_OPEN", payload: false })}
+            onConfirm={() => {
+              console.log("[GoGamePage] Resign confirmed => sending resign action");
+              socketClient.sendGameAction(matchId, "resign", { player: currentPlayer });
+              gameDispatch({ type: "SET_CONFIRM_RESIGN_OPEN", payload: false });
+            }}
+          />
         </Grid>
 
         <Grid item xs={2}>

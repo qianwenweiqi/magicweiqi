@@ -15,7 +15,7 @@ function Lobby() {
   const [modalOpen, setModalOpen] = useState(false);
   const [reconnectAttempt, setReconnectAttempt] = useState(0);
 
-  // 拉取当前用户名
+  // Fetch current username
   const fetchUsername = async () => {
     try {
       const token = localStorage.getItem("token");
@@ -31,24 +31,24 @@ function Lobby() {
     }
   };
 
-  // 初始化lobby连接
+  // Initialize lobby connection
   const initLobby = useCallback(async () => {
     try {
-      // 1. 先获取用户信息
+      // 1. Get user info
       await fetchUsername();
       
-      // 2. 连接lobby (会自动加入大厅)
+      // 2. Connect to lobby (auto-join)
       const socket = await socketClient.connectToLobby();
       if (!socket) {
         throw new Error("[Lobby] Failed to connect to lobby");
       }
       
-      // 3. 获取房间列表
+      // 3. Get room list
       socketClient.sendMessage({ type: "get_rooms" });
       
     } catch (err) {
       console.error("[Lobby] Failed to initialize lobby:", err);
-      // 如果是连接错误，尝试重连
+      // Try reconnect if connection error
       if (reconnectAttempt < 5) {
         setTimeout(() => {
           setReconnectAttempt(prev => prev + 1);
@@ -58,12 +58,12 @@ function Lobby() {
     }
   }, [reconnectAttempt]);
 
-  // 初次挂载时初始化
+  // Initialize on mount
   useEffect(() => {
     initLobby();
   }, [initLobby]);
 
-  // 拉取房间列表 (也可以点按钮手动刷新)
+  // Fetch room list (can also refresh manually)
   const fetchRooms = async () => {
     try {
       console.log("[Lobby] fetchRooms() called");
@@ -108,10 +108,10 @@ function Lobby() {
         dispatch({ type: 'SET_CREATED_ROOM_ID', payload: null });
         dispatch({ type: 'SET_IS_CREATOR', payload: false });
       }
-      // 广播房间删除
+      // Broadcast room deletion with room_id
       socketClient.sendMessage({
-        type: "room_delete",
-        room_id: roomId,
+        type: "room_deleted",
+        room_id: roomId
       });
     } catch (err) {
       console.error("[Lobby] Error deleting room:", err);
@@ -140,10 +140,10 @@ function Lobby() {
       );
       console.log("[Lobby] Successfully joined room via REST API");
 
-      // 加入房间
+      // Join room
       await socketClient.joinRoom(roomId);
       
-      // 打开modal (currentRoom会通过socket事件更新)
+      // Open modal (currentRoom will update via socket event)
       setModalOpen(true);
 
     } catch (err) {
@@ -165,7 +165,7 @@ function Lobby() {
     dispatch({ type: 'SET_IS_CREATOR', payload: false });
     dispatch({ type: 'SET_CREATED_ROOM_ID', payload: null });
 
-    // 刷新房间列表
+    // Refresh room list
     if (shouldRefresh) {
       socketClient.sendMessage({ type: "get_rooms" });
     }
@@ -233,35 +233,59 @@ function Lobby() {
                 backgroundColor: currentRoom?.room_id === room.room_id ? "#f5f5f5" : "white",
               }}
             >
-              <Typography>Room ID: {room.room_id}</Typography>
+              <Typography>
+                {room.started ? `Game ID: ${room.match_id}` : `Room ID: ${room.room_id}`}
+              </Typography>
               <Typography>
                 ELO Range: {room.eloMin || "-"} - {room.eloMax || "-"}
               </Typography>
               <Typography>
+                Creator: {(room.players || [])[0]?.username}
+              </Typography>
+              <Typography>
                 Players: {(room.players || []).map((p) => p.username).join(", ")}
               </Typography>
-              <Typography>Started: {room.started ? "Yes" : "No"}</Typography>
+              <Typography>
+                Status: {room.started ? (room.game_over ? "Finished" : "In Progress") : "Not Started"}
+                {room.game_over && room.winner && ` - ${room.winner}`}
+              </Typography>
               <div style={{ display: "inline-block" }}>
-                <Button
-                  variant="outlined"
-                  onClick={() => handleJoinRoom(room.room_id)}
-                  style={{ marginRight: 6 }}
-                  disabled={(room.players || []).some((p) => p.username === username)}
-                >
-                  Join
-                </Button>
-                {(room.players || [])[0]?.username === username && (
+                {!room.started && (
                   <Button
-                    variant="contained"
-                    color="error"
-                    onClick={() => handleDeleteRoom(room.room_id)}
+                    variant="outlined"
+                    onClick={() => handleJoinRoom(room.room_id)}
                     style={{ marginRight: 6 }}
+                    disabled={(room.players || []).some((p) => p.username === username)}
                   >
-                    Delete
+                    Join
                   </Button>
                 )}
+                {room.started && !room.game_over && (
+                  <Button
+                    variant="outlined"
+                    onClick={() => {
+                      dispatch({ type: 'SET_CURRENT_ROOM', payload: room });
+                      setModalOpen(true);
+                    }}
+                    style={{ marginRight: 6 }}
+                  >
+                    Watch
+                  </Button>
+                )}
+                {/* Only creator can delete not started or finished rooms */}
+                {(room.players || [])[0]?.username === username && 
+                  (!room.started || room.game_over) && (
+                    <Button
+                      variant="contained"
+                      color="error"
+                      onClick={() => handleDeleteRoom(room.room_id)}
+                      style={{ marginRight: 6 }}
+                    >
+                      Delete Room
+                    </Button>
+                )}
               </div>
-              {room.started && room.match_id && (
+              {room.started && room.match_id && !room.game_over && (
                 <div style={{ marginTop: 8 }}>
                   <Typography
                     variant="body2"
