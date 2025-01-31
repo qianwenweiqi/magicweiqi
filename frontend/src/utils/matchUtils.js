@@ -40,6 +40,13 @@ export const createMatch = async (config) => {
     'boardSize', 'handicap'
   ];
   
+  // sgfContent是可选的
+  if (config.sgfContent !== undefined && config.sgfContent !== null) {
+    if (typeof config.sgfContent !== 'string') {
+      throw new Error('SGF content must be a string');
+    }
+  }
+  
   const missingFields = requiredFields.filter(field => !(field in config));
   if (missingFields.length > 0) {
     console.error('Missing required fields:', missingFields);

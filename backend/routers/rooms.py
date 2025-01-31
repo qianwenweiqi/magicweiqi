@@ -6,6 +6,7 @@ import uuid
 import time
 import random
 import logging
+from typing import Optional
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -108,6 +109,7 @@ class RoomConfig(BaseModel):
     byoYomiTime: int
     boardSize: int
     handicap: int
+    sgfContent: Optional[str] = None
 
 @router.get("/rooms")
 async def list_rooms():
@@ -167,6 +169,11 @@ async def create_room(config: RoomConfig, current_user: dict = Depends(get_curre
                 if username in rinfo["players"]:
                     raise HTTPException(status_code=400, detail="Already in another room")
 
+        # 记录原始的SGF内容
+        sgf_content = data.get("sgfContent")
+        if sgf_content:
+            logger.info(f"Received SGF content in create_room: {sgf_content[:200]}...")
+        
         rooms[room_id] = {
             "eloMin": data["eloMin"],
             "eloMax": data["eloMax"],
@@ -177,6 +184,7 @@ async def create_room(config: RoomConfig, current_user: dict = Depends(get_curre
             "byoYomiTime": data["byoYomiTime"],
             "boardSize": data["boardSize"],
             "handicap": data["handicap"],
+            "sgfContent": sgf_content,
             "players": [username],
             "ready": {username: False},
             "started": False,
@@ -253,6 +261,14 @@ async def ready_room(room_id: str, current_user: dict = Depends(get_current_user
                         white_player = (room["players"][1] if black_player==room["players"][0]
                                         else room["players"][0])
 
+                    # 从房间获取SGF内容
+                    sgf_content = room["sgfContent"]
+                    if sgf_content:
+                        logger.info(f"Found SGF content in room {room_id}: {sgf_content[:200]}...")
+                        logger.info("Creating match with SGF content")
+                    else:
+                        logger.info(f"No SGF content found in room {room_id}")
+                        
                     match_data = CreateMatch(
                         board_size=room["boardSize"],
                         black_player=black_player,
@@ -261,8 +277,10 @@ async def ready_room(room_id: str, current_user: dict = Depends(get_current_user
                         byo_yomi_time=room["byoYomiTime"],
                         byo_yomi_periods=room["byoYomiPeriods"],
                         komi=6.5,
-                        handicap=0
+                        handicap=0,
+                        sgf_content=sgf_content
                     )
+                    logger.info(f"Creating match with SGF content: {bool(sgf_content)}")
                     resp = create_match_internal(match_data)
                     room["started"] = True
                     room["match_id"] = resp["match_id"]

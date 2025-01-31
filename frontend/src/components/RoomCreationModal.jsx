@@ -32,12 +32,14 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
   const [mainTime, setMainTime] = useState(300);
   const [byoYomiPeriods, setByoYomiPeriods] = useState(3);
   const [byoYomiTime, setByoYomiTime] = useState(30);
+  const [sgfFile, setSgfFile] = useState(null);
+  const [createFromSgf, setCreateFromSgf] = useState(false);
 
   const [isCreating, setIsCreating] = useState(false);
   const [isWaiting, setIsWaiting] = useState(false);
   const [isJoiner, setIsJoiner] = useState(false);
 
-  // 根据 currentRoom、isCreator 判断：显示“创建表单”还是“等待房间”
+  // 根据 currentRoom、isCreator 判断：显示"创建表单"还是"等待房间"
   useEffect(() => {
     console.log("[RoomCreationModal] useEffect => currentRoom:", currentRoom, "isCreator:", isCreator);
     if (currentRoom && currentRoom.room_id) {
@@ -51,7 +53,7 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
     }
   }, [currentRoom, username]);
 
-  // 点击“Ready”按钮
+  // 点击"Ready"按钮
   const handleReady = async () => {
     console.log("[RoomCreationModal] handleReady => currentRoom:", currentRoom);
     if (!currentRoom?.room_id) return;
@@ -79,12 +81,17 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
   };
 
   /**
-   * 点击“Create”按钮创建房间
+   * 点击"Create"按钮创建房间
    */
   const handleCreate = async () => {
     console.log("[RoomCreationModal] handleCreate clicked => isWaiting:", isWaiting);
     setIsCreating(true);
     if (isWaiting) return;
+
+    if (createFromSgf) {
+      console.log("[RoomCreationModal] Creating room with SGF file");
+      console.log("[RoomCreationModal] SGF content:", sgfFile);
+    }
 
     const config = {
       eloMin: parseInt(eloMin, 10),
@@ -96,9 +103,21 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
       byoYomiTime: parseInt(byoYomiTime, 10),
       boardSize: 19,
       handicap: 0,
+      sgfContent: createFromSgf ? sgfFile : null,
     };
 
     // 简单验证
+    if (createFromSgf && !sgfFile) {
+      alert("Please select an SGF file");
+      setIsCreating(false);
+      return;
+    }
+
+    console.log("[RoomCreationModal] Creating room with config:", {
+      ...config,
+      sgfContent: config.sgfContent ? `${config.sgfContent.substring(0, 100)}...` : null
+    });
+
     const validationErrors = [];
     if (eloMin < 0 || eloMin > 9999) validationErrors.push("eloMin must be between 0~9999");
     if (eloMax < 0 || eloMax > 9999) validationErrors.push("eloMax must be between 0~9999");
@@ -116,7 +135,6 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
     }
 
     try {
-      console.log("[RoomCreationModal] handleCreate => creating match with config:", config);
       // 发起后端创建请求
       const roomId = await createMatch(config);
       console.log("[RoomCreationModal] Room created with ID:", roomId);
@@ -297,6 +315,51 @@ function RoomCreationModal({ open, onClose, onCreate, username }) {
                   onChange={(e) => setByoYomiPeriods(Number(e.target.value))}
                 />
               </>
+            )}
+            <FormControl fullWidth margin="dense">
+              <InputLabel>Game Type</InputLabel>
+              <Select
+                value={createFromSgf ? "sgf" : "normal"}
+                onChange={(e) => {
+                  const newValue = e.target.value === "sgf";
+                  console.log("[RoomCreationModal] Game type changed:", newValue ? "SGF" : "Normal");
+                  setCreateFromSgf(newValue);
+                  if (!newValue) {
+                    setSgfFile(null);
+                  }
+                }}
+              >
+                <MenuItem value="normal">Normal Game</MenuItem>
+                <MenuItem value="sgf">Create from SGF</MenuItem>
+              </Select>
+            </FormControl>
+            {createFromSgf && (
+              <TextField
+                type="file"
+                fullWidth
+                margin="dense"
+                onChange={(e) => {
+                  const file = e.target.files[0];
+                  if (file) {
+                    console.log("[RoomCreationModal] Reading SGF file:", file.name, file.type, file.size);
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                      const content = e.target.result;
+                      console.log("[RoomCreationModal] SGF file content loaded:", content);
+                      console.log("[RoomCreationModal] SGF file content type:", typeof content);
+                      console.log("[RoomCreationModal] SGF file content length:", content.length);
+                      setSgfFile(content);
+                    };
+                    reader.onerror = (e) => {
+                      console.error("[RoomCreationModal] Error reading SGF file:", e);
+                    };
+                    reader.readAsText(file);
+                  }
+                }}
+                inputProps={{
+                  accept: ".sgf"
+                }}
+              />
             )}
           </>
         )}

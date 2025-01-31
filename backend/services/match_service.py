@@ -51,18 +51,43 @@ def get_matches():
     return active_matches
 
 def create_match_internal(match_data: CreateMatch) -> dict:
-    logger.info(f"Creating new match with players: {match_data.black_player} (black) vs {match_data.white_player} (white)")
     """Internal service function to create a match, used by both routers"""
-    game = GoGame(
-        board_size=match_data.board_size,
-        black_player=match_data.black_player,
-        white_player=match_data.white_player,
-        main_time=match_data.main_time,
-        byo_yomi_time=match_data.byo_yomi_time,
-        byo_yomi_periods=match_data.byo_yomi_periods,
-        komi=match_data.komi,
-        players=[match_data.black_player, match_data.white_player]
-    )
+    logger.info(f"Creating new match with players: {match_data.black_player} (black) vs {match_data.white_player} (white)")
+    
+    # 检查是否有SGF内容
+    sgf_content = match_data.sgf_content
+    logger.info(f"Creating game with SGF content: {sgf_content[:200] if sgf_content else 'None'}")
+    
+    try:
+        game = GoGame(
+            board_size=match_data.board_size,
+            black_player=match_data.black_player,
+            white_player=match_data.white_player,
+            main_time=match_data.main_time,
+            byo_yomi_time=match_data.byo_yomi_time,
+            byo_yomi_periods=match_data.byo_yomi_periods,
+            komi=match_data.komi,
+            players=[match_data.black_player, match_data.white_player],
+            sgf_content=sgf_content
+        )
+        
+        # 打印棋盘状态用于调试
+        board_str = "\n".join([" ".join("B" if cell == "black" else "W" if cell == "white" else "." for cell in row) for row in game.board])
+        logger.info(f"Created game with board state:\n{board_str}")
+        
+    except Exception as e:
+        logger.error(f"Error creating game with SGF: {e}")
+        # 如果创建失败，创建一个没有SGF的新游戏
+        game = GoGame(
+            board_size=match_data.board_size,
+            black_player=match_data.black_player,
+            white_player=match_data.white_player,
+            main_time=match_data.main_time,
+            byo_yomi_time=match_data.byo_yomi_time,
+            byo_yomi_periods=match_data.byo_yomi_periods,
+            komi=match_data.komi,
+            players=[match_data.black_player, match_data.white_player]
+        )
     
     import uuid
     match_id = str(uuid.uuid4())
