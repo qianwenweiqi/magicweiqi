@@ -21,4 +21,9 @@ architecture_documentation.pdf
 combined_code.txt
 refactor_plan.txt
 backend/__pycache__/main.cpython-313.pyc
+scripts/
 scripts/generate_code_pdf.py
+.history
+.history/
+backend/__pycache__/main.cpython-313.pyc
+backend/routers/__pycache__/matches.cpython-313.pyc

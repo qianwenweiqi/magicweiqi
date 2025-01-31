@@ -14,8 +14,12 @@ router = APIRouter()
 
 from backend.services.match_service import get_matches, create_match_internal
 
+
 @router.post("/matches")
 def create_match(data: CreateMatch):
+    """
+    通过HTTP创建一个新的对局 (通常是由房间系统自动调用)
+    """
     if data.black_player == data.white_player:
         raise HTTPException(status_code=400, detail="Black and white players cannot be the same")
     
@@ -25,127 +29,12 @@ def create_match(data: CreateMatch):
     logger.info(f"Current matches: {list(matches.keys())}")
     return result
 
-@router.post("/matches/{match_id}/move")
-async def make_move(match_id: str, move: Move, current_user: dict = Depends(get_current_user)):
-    matches = get_matches()
-    if match_id not in matches:
-        logger.error(f"Match not found: {match_id}")
-        logger.info(f"Current matches: {list(matches.keys())}")
-        raise HTTPException(status_code=404, detail="Match not found")
-    
-    game = matches[match_id]
-    logger.info(f"Accessed match: {match_id}")
-    
-    # Verify it's the player's turn
-    username = current_user["username"]
-    if (game.current_player == "black" and username != game.black_player) or \
-       (game.current_player == "white" and username != game.white_player):
-        raise HTTPException(status_code=403, detail="Not your turn")
-    
-    if game.game_over:
-        raise HTTPException(status_code=400, detail="Game is already over.")
-
-    success, message = game.play_move(move.x, move.y)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    
-    # Broadcast game update to all connected clients
-    from backend.main import game_manager
-    game_state = {
-        "type": "game_update",
-        "match_id": match_id,  # ★修复：加入match_id字段
-        "board": game.board,
-        "current_player": game.current_player,
-        "black_player": game.black_player,
-        "white_player": game.white_player,
-        "game_over": game.game_over,
-        "winner": game.winner,
-        "captured": game.captured,
-        "black_timer": game.timers["black"],
-        "white_timer": game.timers["white"]
-    }
-    await game_manager.send_message(match_id, game_state)
-    
-    return {
-        "board": game.board,
-        "current_player": game.current_player,
-        "message": message,
-        "passes": game.passes,
-        "captured": game.captured,
-        "history_length": len(game.history),
-        "game_over": game.game_over,
-        "winner": game.winner,
-        "black_timer": {
-            "main_time": game.timers["black"]["main_time"],
-            "byo_yomi": game.timers["black"]["byo_yomi"],
-            "periods": game.timers["black"]["periods"]
-        },
-        "white_timer": {
-            "main_time": game.timers["white"]["main_time"],
-            "byo_yomi": game.timers["white"]["byo_yomi"],
-            "periods": game.timers["white"]["periods"]
-        }
-    }
-
-@router.post("/matches/{match_id}/resign")
-async def resign_match(match_id: str, req: ResignRequest, current_user: dict = Depends(get_current_user)):
-    matches = get_matches()
-    if match_id not in matches:
-        raise HTTPException(status_code=404, detail="Match not found")
-    
-    game = matches[match_id]
-    
-    # Verify it's a player in the game
-    username = current_user["username"]
-    if username != game.black_player and username != game.white_player:
-        raise HTTPException(status_code=403, detail="Only players can resign")
-    
-    # Verify player is resigning their own color
-    if (req.player == "black" and username != game.black_player) or \
-       (req.player == "white" and username != game.white_player):
-        raise HTTPException(status_code=403, detail="Can only resign your own color")
-    
-    success, message = game.resign(req.player)
-    if not success:
-        raise HTTPException(status_code=400, detail=message)
-    game.update_timers()
-    
-    # Broadcast game update
-    from backend.main import game_manager
-    await game_manager.send_message(match_id, {
-        "type": "game_update",
-        "match_id": match_id,  # ★修复：加入match_id字段
-        "board": game.board,
-        "current_player": game.current_player,
-        "game_over": game.game_over,
-        "winner": game.winner,
-        "captured": game.captured,
-        "black_timer": game.timers["black"],
-        "white_timer": game.timers["white"]
-    })
-    
-    return {
-        "board": game.board,
-        "winner": game.winner,
-        "game_over": game.game_over,
-        "message": message,
-        "passes": game.passes,
-        "captured": game.captured,
-        "history_length": len(game.history),
-        "black_timer": {
-            "main_time": game.timers["black"]["main_time"],
-            "byo_yomi": game.timers["black"]["byo_yomi"],
-            "periods": game.timers["black"]["periods"]
-        },
-        "white_timer": {
-            "main_time": game.timers["white"]["main_time"],
-            "byo_yomi": game.timers["white"]["byo_yomi"],
-            "periods": game.timers["white"]["periods"]
-        }
-    }
 
 @router.get("/matches/{match_id}")
 def get_match(match_id: str):
+    """
+    获取对局的最新信息(棋盘、计时等)。前端刷新页面时可调用一次，以便拿到对局状态。
+    """
     matches = get_matches()
     if match_id not in matches:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -171,8 +60,12 @@ def get_match(match_id: str):
         }
     }
 
+
 @router.get("/matches/{match_id}/players")
 def get_match_players(match_id: str):
+    """
+    获取对局玩家信息（用户名、是否黑棋/白棋、ELO等）。
+    """
     matches = get_matches()
     if match_id not in matches:
         raise HTTPException(status_code=404, detail="Match not found")
@@ -181,7 +74,7 @@ def get_match_players(match_id: str):
         "players": [
             Player(
                 player_id=game.black_player,
-                elo=0,  # TODO
+                elo=0,  # TODO: 待后续实现真实ELO
                 is_black=True,
                 avatar_url=""
             ),
@@ -192,129 +85,29 @@ def get_match_players(match_id: str):
                 avatar_url=""
             )
         ],
-        "black_cards": [],  # TODO: Implement card system
-        "white_cards": [],  # TODO: Implement card system
+        "black_cards": [],  # TODO: Card系统未实现
+        "white_cards": [],
     }
 
-@router.post("/matches/{match_id}/mark_dead_stone")
-async def mark_dead_stone_api(match_id: str, xy: dict, current_user: dict = Depends(get_current_user)):
-    matches = get_matches()
-    if match_id not in matches:
-        raise HTTPException(status_code=404, detail="Match not found")
-    
-    game = matches[match_id]
-    
-    # Verify it's a player in the game
-    username = current_user["username"]
-    if username != game.black_player and username != game.white_player:
-        raise HTTPException(status_code=403, detail="Only players can mark dead stones")
-    
-    x = xy["x"]
-    y = xy["y"]
-    mark_dead_stone(game, x, y, game.current_player)
-    scoring_data = {
-        "dead_stones": list(game.dead_stones),
-        "territory": [],
-        "blackScore": 0,
-        "whiteScore": 0,
-    }
 
-    # Broadcast scoring update
-    from backend.main import game_manager
-    await game_manager.send_message(match_id, {
-        "type": "game_update",
-        "match_id": match_id,  # ★修复：加入match_id字段
-        "board": game.board,
-        "current_player": game.current_player,
-        "game_over": game.game_over,
-        "winner": game.winner,
-        "captured": game.captured,
-        "black_timer": game.timers["black"],
-        "white_timer": game.timers["white"],
-        "scoring_data": scoring_data
-    })
+# ============ 移除HTTP方式的落子、认输、标记死子、确认数子、更新对局状态等接口 ============
+# 这些操作已改为WebSocket事件，请前往 backend/main.py 中查看 move_stone、resign、mark_dead_stone等事件。
+#
+# 原先如下HTTP路由已被弃用:
+# @router.post("/matches/{match_id}/move") -> 通过 socket: move_stone
+# @router.post("/matches/{match_id}/resign") -> 通过 socket: resign
+# @router.post("/matches/{match_id}/mark_dead_stone") -> 通过 socket: mark_dead_stone
+# @router.post("/matches/{match_id}/confirm_scoring") -> 通过 socket: confirm_scoring
+# @router.post("/matches/{match_id}/update_status") -> 通过 socket: update_status
+#
+# 保留下列接口: export_sgf, review_sgf(用于文件上传解析)
 
-    return {"scoring_data": scoring_data}
-
-@router.post("/matches/{match_id}/confirm_scoring")
-async def confirm_scoring_api(match_id: str, current_user: dict = Depends(get_current_user)):
-    matches = get_matches()
-    if match_id not in matches:
-        raise HTTPException(status_code=404, detail="Match not found")
-    game = matches[match_id]
-    
-    # Verify it's a player in the game
-    username = current_user["username"]
-    if username != game.black_player and username != game.white_player:
-        raise HTTPException(status_code=403, detail="Only players can confirm scoring")
-    
-    black_score, white_score, winner = final_scoring(game)
-
-    # Broadcast final scoring
-    from backend.main import game_manager
-    await game_manager.send_message(match_id, {
-        "type": "game_update",
-        "match_id": match_id,  # ★修复：加入match_id字段
-        "board": game.board,
-        "current_player": game.current_player,
-        "game_over": True,
-        "winner": winner,
-        "captured": game.captured,
-        "black_timer": game.timers["black"],
-        "white_timer": game.timers["white"],
-        "scoring_data": {
-            "dead_stones": list(game.dead_stones),
-            "territory": [],
-            "blackScore": black_score,
-            "whiteScore": white_score,
-        }
-    })
-
-    return {
-        "final_scored": True,
-        "black_score": black_score,
-        "white_score": white_score,
-        "winner": winner,
-    }
-
-@router.post("/matches/{match_id}/update_status")
-async def update_match_status(match_id: str, status: dict, current_user: dict = Depends(get_current_user)):
-    matches = get_matches()
-    if match_id not in matches:
-        raise HTTPException(status_code=404, detail="Match not found")
-    
-    game = matches[match_id]
-    
-    # Verify it's a player in the game
-    username = current_user["username"]
-    if username != game.black_player and username != game.white_player:
-        raise HTTPException(status_code=403, detail="Only players can update match status")
-    
-    # Update game status
-    game.status = status["status"]
-    
-    # Broadcast status update
-    from backend.main import game_manager
-    await game_manager.send_message(match_id, {
-        "type": "game_update",
-        "match_id": match_id,  # ★修复：加入match_id字段
-        "board": game.board,
-        "current_player": game.current_player,
-        "game_over": game.game_over,
-        "winner": game.winner,
-        "captured": game.captured,
-        "black_timer": game.timers["black"],
-        "white_timer": game.timers["white"],
-        "status": game.status
-    })
-    
-    return {"updated": True}
 
 @router.get("/matches/{match_id}/export_sgf")
 def export_sgf(match_id: str):
     """
-    x=0 在底行, SGF row=0 在顶行 => row=(board_size-1 - x)
-    col=y
+    导出SGF棋谱
+    x=0 在底行, SGF row=0 在顶行 => row=(board_size-1 - x), col=y
     """
     matches = get_matches()
     if match_id not in matches:
@@ -340,7 +133,7 @@ def export_sgf(match_id: str):
 @router.post("/review_sgf")
 def review_sgf(file: UploadFile = File(...)):
     """
-    将SGF解析成序列化落子列表： (color, x, y)
+    将SGF解析为落子序列，用于复盘。
     """
     try:
         content = file.file.read()

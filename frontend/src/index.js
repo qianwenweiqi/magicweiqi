@@ -18,16 +18,16 @@ const oidcConfig = {
 
 const root = ReactDOM.createRoot(document.getElementById("root"));
 
+// ======= 取消 <React.StrictMode> 包裹，避免双重挂载导致 socket 监听被移除 =======
 root.render(
-  <React.StrictMode>
-    <OIDCAuthProvider {...oidcConfig}>
-      <AuthProvider>
-        <RoomProvider>
-          <GameProvider>
-            <App />
-          </GameProvider>
-        </RoomProvider>
-      </AuthProvider>
-    </OIDCAuthProvider>
-  </React.StrictMode>
+  /* 移除React.StrictMode后，其余Provider仍保持 */
+  <OIDCAuthProvider {...oidcConfig}>
+    <AuthProvider>
+      <RoomProvider>
+        <GameProvider>
+          <App />
+        </GameProvider>
+      </RoomProvider>
+    </AuthProvider>
+  </OIDCAuthProvider>
 );

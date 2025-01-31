@@ -1,6 +1,13 @@
 import { io } from "socket.io-client";
 import { WEBSOCKET_BASE_URL } from "../config/config";
 
+/**
+ * SocketClient:
+ * - 不再在 setupSocketListeners / setupGameSocketListeners 等处调用 socket.removeAllListeners()
+ * - 避免在 React.StrictMode 或多次连接场景下把 "game_update" 等回调意外移除
+ * - 其余业务逻辑和日志全部保留
+ */
+
 class SocketClient {
   constructor() {
     if (SocketClient.instance) {
@@ -102,13 +109,16 @@ class SocketClient {
       this.lobbyConnected = true;
       this.lobbyReconnectAttempt = 0;
       const connectCallbacks = this.eventListeners.get("connect") || [];
-      connectCallbacks.forEach(cb => cb());
+      connectCallbacks.forEach((cb) => cb());
     });
-    socket.on("disconnect", reason => {
+    socket.on("disconnect", (reason) => {
       this.lobbyConnected = false;
       const disconnectCallbacks = this.eventListeners.get("disconnect") || [];
-      disconnectCallbacks.forEach(cb => cb(reason));
-      if (reason !== "io client disconnect" && reason !== "io server disconnect") {
+      disconnectCallbacks.forEach((cb) => cb(reason));
+      if (
+        reason !== "io client disconnect" &&
+        reason !== "io server disconnect"
+      ) {
         if (this.lobbyReconnectAttempt < this.maxReconnectAttempts) {
           setTimeout(() => {
             this.connectToLobby().catch(console.error);
@@ -117,9 +127,9 @@ class SocketClient {
         }
       }
     });
-    socket.on("lobby_update", data => {
+    socket.on("lobby_update", (data) => {
       const cbs = this.eventListeners.get("lobby_update") || [];
-      cbs.forEach(cb => cb(data));
+      cbs.forEach((cb) => cb(data));
     });
     socket.on("connect_error", (error) => {
       console.error("[SocketClient] Lobby connection error:", error);
@@ -155,9 +165,10 @@ class SocketClient {
 
   async _createConnection(roomId) {
     try {
+      // 如果之前有socket，则先断开
       const existingSocket = this.sockets.get(roomId);
       if (existingSocket) {
-        existingSocket.removeAllListeners();
+        // 不再 removeAllListeners(); 只简单断开
         existingSocket.disconnect();
         this.sockets.delete(roomId);
       }
@@ -195,41 +206,72 @@ class SocketClient {
 
   setupSocketListeners(roomId, socket) {
     socket.on("connect", () => {
+      console.log("[SocketClient] Socket connected for room:", roomId);
       this.reconnectAttempts.set(roomId, 0);
       socket.io.engine.on("transportChange", (transport) => {
-        console.log("[SocketClient] roomId=", roomId, ", transport change =>", transport.name);
+        console.log(
+          "[SocketClient] roomId=",
+          roomId,
+          ", transport change =>",
+          transport.name
+        );
       });
       const connectCbs = this.eventListeners.get("connect") || [];
-      connectCbs.forEach(cb => cb());
+      connectCbs.forEach((cb) => cb());
     });
-    socket.on("connect_error", error => {
+    // 不在此处 removeAllListeners(); 仅添加on
+    socket.on("connect_error", (error) => {
       console.error("[SocketClient] Connection error for room:", roomId, error);
       this.handleError({ roomId, error });
     });
-    socket.on("disconnect", reason => {
+    socket.on("disconnect", (reason) => {
+      console.log("[SocketClient] Socket disconnected for room:", roomId, reason);
       const discCbs = this.eventListeners.get("disconnect") || [];
-      discCbs.forEach(cb => cb(reason));
+      discCbs.forEach((cb) => cb(reason));
       this.handleDisconnect(roomId, reason);
     });
-    socket.on("message", data => {
+    socket.on("message", (data) => {
+      console.log("[SocketClient] Received message for room:", roomId, data);
       const msgCbs = this.eventListeners.get("message") || [];
-      msgCbs.forEach(cb => cb({ roomId, data }));
+      msgCbs.forEach((cb) => cb({ roomId, data }));
     });
-    socket.on("room_update", data => {
+    socket.on("room_update", (data) => {
+      console.log("[SocketClient] Received room_update for room:", roomId, data);
       const cbs = this.eventListeners.get("room_update") || [];
-      cbs.forEach(cb => cb(data));
+      cbs.forEach((cb) => cb(data));
     });
-    socket.on("lobby_update", data => {
+    socket.on("lobby_update", (data) => {
+      console.log("[SocketClient] Received lobby_update for room:", roomId, data);
       const cbs = this.eventListeners.get("lobby_update") || [];
-      cbs.forEach(cb => cb(data));
+      cbs.forEach((cb) => cb(data));
     });
-    socket.on("readyStateUpdate", data => {
-      const cbs = this.eventListeners.get("readyStateUpdate") || [];
-      cbs.forEach(cb => cb(data));
-    });
-    socket.on("game_update", data => {
+    // 不再 removeAllListeners(); 仅添加on
+    socket.on("game_update", (data) => {
+      console.log("[SocketClient] Received game_update for room:", roomId, data);
+      console.log("[SocketClient] Socket details:", {
+        id: socket.id,
+        connected: socket.connected,
+        disconnected: socket.disconnected,
+      });
+
       const cbs = this.eventListeners.get("game_update") || [];
-      cbs.forEach(cb => cb(data));
+      if (cbs.length === 0) {
+        console.warn("[SocketClient] No handlers registered for game_update");
+        return;
+      }
+      cbs.forEach((cb, index) => {
+        try {
+          console.log(`[SocketClient] Executing game_update callback ${index + 1}`);
+          cb(data);
+        } catch (err) {
+          console.error("[SocketClient] Error in game_update handler:", err);
+        }
+      });
+    });
+    socket.on("game_error", (data) => {
+      console.error("[SocketClient] Received game_error for room:", roomId, data);
+      const cbs = this.eventListeners.get("game_error") || [];
+      cbs.forEach((cb) => cb(data));
     });
   }
 
@@ -240,10 +282,26 @@ class SocketClient {
       console.error("[SocketClient] connectToGame => no token/username");
       return null;
     }
+    console.log("[SocketClient] connectToGame => matchId:", matchId);
+
+    // 如果已有并已连接，则复用
+    if (this.sockets.has(matchId) && this.sockets.get(matchId).connected) {
+      console.log("[SocketClient] connectToGame => reusing existing socket");
+      const existingSocket = this.sockets.get(matchId);
+      existingSocket.emit("joinGame", { match_id: matchId, username });
+      return existingSocket;
+    }
+
+    // 若有旧 socket，先断开
+    if (this.sockets.has(matchId)) {
+      console.log("[SocketClient] connectToGame => cleaning up old socket");
+      const oldSocket = this.sockets.get(matchId);
+      // 不再 removeAllListeners(); 仅简单断开
+      oldSocket.disconnect();
+      this.sockets.delete(matchId);
+    }
+
     try {
-      if (this.sockets.has(matchId) && this.sockets.get(matchId).connected) {
-        return this.sockets.get(matchId);
-      }
       const newSocket = io(WEBSOCKET_BASE_URL, {
         auth: { token },
         transports: ["websocket"],
@@ -255,23 +313,57 @@ class SocketClient {
         reconnectionDelayMax: 5000,
         randomizationFactor: 0.5,
       });
+
       await new Promise((resolve, reject) => {
         const t = setTimeout(() => {
+          newSocket.close();
           reject(new Error("Connection timeout"));
         }, 5000);
+
         newSocket.once("connect", () => {
+          console.log("[SocketClient] connectToGame => socket connected");
           clearTimeout(t);
           resolve();
         });
+
         newSocket.once("connect_error", (error) => {
+          console.error("[SocketClient] connectToGame => connection error:", error);
           clearTimeout(t);
+          newSocket.close();
           reject(error);
         });
       });
+
+      // 重连逻辑
+      newSocket.on("disconnect", (reason) => {
+        console.log("[SocketClient] Game socket disconnected:", reason);
+        if (
+          reason !== "io server disconnect" &&
+          reason !== "io client disconnect"
+        ) {
+          setTimeout(() => {
+            if (!newSocket.connected) {
+              newSocket.connect();
+            }
+          }, this.reconnectDelay);
+        }
+      });
+
       this.sockets.set(matchId, newSocket);
       this.reconnectAttempts.set(matchId, 0);
       this.matchId = matchId;
+
+      // 不再 removeAllListeners(); 仅设置监听器
+      newSocket.onAny((eventName, ...args) => {
+        console.log(`[SocketClient] Raw event received: ${eventName}`, args);
+      });
       this.setupGameSocketListeners(matchId, newSocket);
+
+      // 加入对应房间
+      await newSocket.emit("join", `game_${matchId}`);
+      await newSocket.emit("joinGame", { match_id: matchId, username });
+
+      console.log("[SocketClient] connectToGame => setup complete, socket joined room game_" + matchId);
       return newSocket;
     } catch (err) {
       console.error("[SocketClient] connectToGame => fail:", err);
@@ -279,34 +371,51 @@ class SocketClient {
     }
   }
 
+  // 仅添加监听，不做 removeAllListeners()
   setupGameSocketListeners(matchId, socket) {
+    console.log("[SocketClient] Setting up game socket listeners for match:", matchId);
+
     socket.on("connect", () => {
+      console.log("[SocketClient] Game socket connected for match:", matchId);
       this.reconnectAttempts.set(matchId, 0);
-      socket.io.engine.on("transportChange", (transport) => {
-        console.log("[SocketClient] (game) transport =>", transport.name);
-      });
-      setTimeout(() => {
-        if (socket.connected) {
-          const username = localStorage.getItem("username");
-          socket.emit("joinGame", { match_id: matchId, username });
-        }
-      }, 100);
+
+      const username = localStorage.getItem("username") || "unknownUser";
+      console.log("[SocketClient] Joining game after connect:", matchId);
+      socket.emit("joinGame", { match_id: matchId, username });
+
       const connectCbs = this.eventListeners.get("connect") || [];
-      connectCbs.forEach(cb => cb());
+      connectCbs.forEach((cb) => cb());
     });
-    socket.on("disconnect", reason => {
+
+    socket.on("disconnect", (reason) => {
+      console.log("[SocketClient] Game socket disconnected:", reason);
       const discCbs = this.eventListeners.get("disconnect") || [];
-      discCbs.forEach(cb => cb(reason));
+      discCbs.forEach((cb) => cb(reason));
       this.handleDisconnect(matchId, reason);
     });
-    socket.on("connect_error", error => {
+
+    socket.on("connect_error", (error) => {
       console.error("[SocketClient] game connection error:", error);
       this.handleError({ matchId, error });
     });
-    socket.on("game_update", data => {
+
+    socket.on("game_update", (data) => {
+      console.log("[SocketClient] Received game_update for match:", matchId);
       const cbs = this.eventListeners.get("game_update") || [];
-      cbs.forEach(cb => cb(data));
+      if (cbs.length === 0) {
+        console.warn("[SocketClient] No handlers registered for game_update");
+        return;
+      }
+      cbs.forEach((cb, index) => {
+        try {
+          console.log(`[SocketClient] Executing callback ${index + 1} for game_update`);
+          cb(data);
+        } catch (err) {
+          console.error("[SocketClient] Error in game_update handler:", err);
+        }
+      });
     });
+    console.log("[SocketClient] Game socket listeners setup complete for match:", matchId);
   }
 
   handleServerRestart() {
@@ -320,7 +429,6 @@ class SocketClient {
       this.lobbyReconnectAttempt = 0;
     }
     this.sockets.forEach((sock, id) => {
-      sock.removeAllListeners();
       sock.disconnect();
       sock.close();
     });
@@ -337,11 +445,14 @@ class SocketClient {
     if (id === "lobby") {
       this.lobbyConnected = false;
     }
-    if (reason !== "io client disconnect" && reason !== "io server disconnect") {
+    if (
+      reason !== "io client disconnect" &&
+      reason !== "io server disconnect"
+    ) {
       const curAttempt = this.reconnectAttempts.get(id) || 0;
       if (curAttempt < this.maxReconnectAttempts) {
         setTimeout(() => {
-          this.connect(id).catch(err => {
+          this.connect(id).catch((err) => {
             if (err.message?.includes("xhr poll error")) {
               this.handleServerRestart();
             } else {
@@ -356,7 +467,7 @@ class SocketClient {
 
   handleError(error) {
     const callbacks = this.eventListeners.get("error") || [];
-    callbacks.forEach(cb => cb(error));
+    callbacks.forEach((cb) => cb(error));
   }
 
   on(event, callback) {
@@ -383,15 +494,13 @@ class SocketClient {
         sock.emit("message", {
           type: "room_update",
           room_id: message.room_id,
-          data: message.data
+          data: message.data,
         });
-      }
-      else {
+      } else {
         console.error("[SocketClient] No active socket for room:", message.room_id);
       }
-    } 
-    else {
-      // 发给所有活动连接 + Lobby
+    } else {
+      // 其他消息 => 发给所有活动连接 + lobby
       this.sockets.forEach((sock) => {
         if (sock && sock.connected) {
           sock.emit("message", message);
@@ -403,12 +512,14 @@ class SocketClient {
     }
   }
 
-  // 新增: 前端可发送“pull_room_info”来获取后端的最新房间数据
   pullRoomInfo(roomId) {
-    console.log("[SocketClient] pullRoomInfo => requesting real data for roomId:", roomId);
+    console.log(
+      "[SocketClient] pullRoomInfo => requesting real data for roomId:",
+      roomId
+    );
     this.sendMessage({
       type: "pull_room_info",
-      room_id: roomId
+      room_id: roomId,
     });
   }
 
@@ -416,6 +527,7 @@ class SocketClient {
     if (id) {
       if (id === "lobby") {
         if (this.lobbySocket) {
+          // 保留 removeAllListeners() 只用于“真正退出lobby”情况
           this.lobbySocket.removeAllListeners();
           this.lobbySocket.disconnect();
           this.lobbySocket.close();
@@ -427,7 +539,7 @@ class SocketClient {
       } else {
         const sock = this.sockets.get(id);
         if (sock) {
-          sock.removeAllListeners();
+          // 不再 removeAllListeners(); 只做 simple disconnect
           sock.disconnect();
           sock.close();
           this.sockets.delete(id);
@@ -435,6 +547,7 @@ class SocketClient {
         }
       }
     } else {
+      // 全部断开
       if (this.lobbySocket) {
         this.lobbySocket.removeAllListeners();
         this.lobbySocket.disconnect();
@@ -445,7 +558,6 @@ class SocketClient {
         this.lobbyReconnectAttempt = 0;
       }
       this.sockets.forEach((sock, key) => {
-        sock.removeAllListeners();
         sock.disconnect();
         sock.close();
       });
@@ -464,26 +576,22 @@ class SocketClient {
     this.sendMessage({
       type: "create_room",
       config,
-      username
+      username,
     });
   }
 
   async joinRoom(roomId) {
     console.log("[SocketClient] joinRoom =>", roomId);
     const username = localStorage.getItem("username");
-    
-    // 先确保连接建立
     const sock = await this.connect(roomId);
     if (!sock) {
       console.error("[SocketClient] joinRoom => Failed to connect to room:", roomId);
       return;
     }
-
     if (roomId === "lobby") {
       sock.emit("join_lobby", { username });
     } else {
       sock.emit("join_custom_room", { room_id: roomId, username });
-      // 不再发空 "room_update"，改用 pullRoomInfo 来主动获取最新状态
       this.pullRoomInfo(roomId);
     }
   }
@@ -495,12 +603,89 @@ class SocketClient {
       sock.emit("leave_room", { room_id: roomId });
     }
   }
+
+  async sendMove(matchId, x, y) {
+    console.log("[SocketClient] sendMove => matchId:", matchId, "position:", x, y);
+    const result = await this.sendGameAction(matchId, "move_stone", { x, y });
+    console.log("[SocketClient] sendMove => result:", result);
+    return result;
+  }
+
+  async sendGameAction(matchId, action, data = {}) {
+    console.log("[SocketClient] sendGameAction =>", { matchId, action, data });
+    let sock = this.sockets.get(matchId);
+    if (!sock || !sock.connected) {
+      console.log("[SocketClient] No active socket, attempting to reconnect...");
+      sock = await this.connectToGame(matchId);
+      if (!sock) {
+        console.error("[SocketClient] Failed to establish connection for action:", action);
+        return;
+      }
+    }
+    if (sock.connected) {
+      switch (action) {
+        case "move_stone":
+          console.log("[SocketClient] Emitting move_stone =>", {
+            match_id: matchId,
+            ...data,
+          });
+          sock.emit("move_stone", {
+            match_id: matchId,
+            ...data,
+          });
+          console.log("[SocketClient] move_stone emitted");
+          break;
+        case "pass":
+          sock.emit("message", {
+            type: "game_update",
+            match_id: matchId,
+            action: "pass",
+          });
+          break;
+        case "resign":
+          sock.emit("resign", {
+            match_id: matchId,
+            ...data,
+          });
+          break;
+        case "confirm_scoring":
+          sock.emit("confirm_scoring", {
+            match_id: matchId,
+            ...data,
+          });
+          break;
+        case "mark_dead_stone":
+          sock.emit("mark_dead_stone", {
+            match_id: matchId,
+            ...data,
+          });
+          break;
+        case "export_sgf":
+          sock.emit("message", {
+            type: "game_update",
+            match_id: matchId,
+            action: "export_sgf",
+          });
+          break;
+        default:
+          console.error("[SocketClient] Unknown game action:", action);
+          return;
+      }
+    } else {
+      console.error(
+        "[SocketClient] Socket still not connected after reconnection attempt"
+      );
+    }
+  }
 }
 
 const socketClient = new SocketClient();
+
+// 注意：保持现有 emit 逻辑和日志，去掉对 'gameUpdate' 的引用，只保留 'game_update'
 socketClient.emit = function (event, data) {
   console.log("[SocketClient] emit => event:", event, "data:", data);
   
+  // lobby或room_update
   if (data?.type === "get_rooms" || event === "join_lobby") {
     if (this.lobbySocket && this.lobbySocket.connected) {
       this.lobbySocket.emit(event, data);
@@ -521,13 +706,12 @@ socketClient.emit = function (event, data) {
         room_id: data.room_id,
         data: data.data
       });
-    }
-    else {
+    } else {
       console.error("[SocketClient] emit => no active socket for room:", data.room_id);
     }
     return;
   }
-  // 其他消息 => 发给所有连接 + lobby
+
   let emitted = false;
   this.sockets.forEach(sock => {
     if (sock && sock.connected) {

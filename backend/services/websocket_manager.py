@@ -6,13 +6,37 @@ from typing import Dict, List
 
 logger = logging.getLogger(__name__)
 
+# 全局实例，供其他模块导入使用
+room_manager = None
+game_manager = None
+
+def init_room_manager(sio: socketio.AsyncServer):
+    """初始化全局 room_manager 实例"""
+    global room_manager
+    if room_manager is None:
+        room_manager = SocketIOManager(sio)
+    return room_manager
+
+def init_game_manager(sio: socketio.AsyncServer):
+    """初始化全局 game_manager 实例"""
+    global game_manager
+    if game_manager is None:
+        game_manager = SocketIOManager(sio)
+    return game_manager
+
 class SocketIOManager:
-    def __init__(self):
+    def __init__(self, sio: socketio.AsyncServer):
+        """
+        由外部传入唯一的 socketio.AsyncServer 实例。
+        此后所有的 emit/broadcast 操作都走 self.sio。
+        """
+        self.sio = sio
+
         # active_connections: { room_id: [sid1, sid2, ...] }
         self.active_connections: Dict[str, List[str]] = {}
         # user_mapping: { sid -> username }
         self.user_mapping: Dict[str, str] = {}
-        self.sio = socketio.AsyncServer(async_mode='asgi')
+
         self.clear_rooms()
 
     def clear_rooms(self):
@@ -33,7 +57,6 @@ class SocketIOManager:
         existing_sid = None
         if room_id in self.active_connections:
             for s in self.active_connections[room_id]:
-                # 如果发现已有相同username
                 if self.user_mapping.get(s) == username:
                     existing_sid = s
                     break
@@ -53,7 +76,7 @@ class SocketIOManager:
     def disconnect(self, room_id: str, sid: str):
         """
         将指定 sid 从 room_id 中移除。
-        若该房间空了，就保留一个空列表(避免后面还要再用？ 或直接删除也行，看项目需求)。
+        若该房间空了，就保留一个空列表(或del之)。
         如果该sid不在其它房间里，顺便把 user_mapping 里也清理掉。
         """
         username = self.user_mapping.get(sid, f"guest-{sid[:6]}")
@@ -62,7 +85,6 @@ class SocketIOManager:
                 s for s in self.active_connections[room_id] if s != sid
             ]
             if not self.active_connections[room_id]:
-                # 这行可改成 del self.active_connections[room_id]，看需要
                 self.active_connections[room_id] = []
                 logger.info(f"Room {room_id} is now empty but kept")
 
@@ -79,7 +101,7 @@ class SocketIOManager:
     async def leave_room(self, room_id: str, sid: str):
         """
         用户主动离开某房间的逻辑。
-        如果房间没人了，可向房间广播 room_deleted (看实际需求)。
+        如果房间没人了，可向房间广播 room_deleted (看项目需求)。
         """
         if room_id in self.active_connections:
             self.active_connections[room_id] = [
@@ -103,7 +125,7 @@ class SocketIOManager:
     async def send_message(self, room_id: str, message: dict, target_sid: str=None):
         """
         向指定房间里的所有连接(or单个sid)发送事件。
-        - 根据 message['type'] 确定事件名 => 'lobby_update' / 'room_update' / 'gameUpdate' / 'readyStateUpdate' ...
+        - 根据 message['type'] 确定事件名 => 'lobby_update' / 'room_update' / 'game_update' / 'readyStateUpdate' ...
         - 如果 target_sid 不为空，则只发给该SID
         """
         if room_id not in self.active_connections:
@@ -120,15 +142,17 @@ class SocketIOManager:
         elif msg_type == 'game_update':
             event_name = 'game_update'
         else:
-            # fallback
-            event_name = 'gameUpdate'
+            event_name = 'game_update'
+            logger.warning(f"[send_message] Unknown message type: {msg_type}, falling back to game_update")
 
         if target_sid:
             # 仅发给目标SID
             try:
-                await self.sio.emit(event_name, message, to=target_sid)
+                await self.sio.emit(event_name, message, room=f'game_{room_id}', to=target_sid)
                 username = self.user_mapping.get(target_sid, f"guest-{target_sid[:6]}")
                 logger.info(f"Message sent to user {username} in {room_id}, event={event_name}")
+                if event_name == 'game_update':
+                    logger.info(f"[send_message] game_update sent to {username}")
             except Exception as e:
                 logger.error(f"Error sending message to {target_sid} in {room_id}: {e}")
                 self.disconnect(room_id, target_sid)
@@ -139,19 +163,10 @@ class SocketIOManager:
                 for s in self.active_connections[room_id]
             ]
             logger.info(f"Broadcasting to room {room_id}, active users: {', '.join(user_list)} with event {event_name}")
-            disconnected = []
-            for sid in self.active_connections[room_id]:
-                try:
-                    await self.sio.emit(event_name, message, to=sid)
-                except Exception as e:
-                    logger.error(f"Error sending to {sid} in room {room_id}: {e}")
-                    disconnected.append(sid)
-            for d in disconnected:
-                self.disconnect(room_id, d)
-
-
-# room_manager 专门管理 lobby / 自定义房间
-room_manager = SocketIOManager()
-
-# game_manager 专门管理对局(match)房间
-game_manager = SocketIOManager()
+            if event_name == 'game_update':
+                logger.info(f"[send_message] Broadcasting game_update to users: {', '.join(user_list)}")
+            try:
+                await self.sio.emit(event_name, message, room=f'game_{room_id}')
+                logger.info(f"[send_message] Broadcast to room game_{room_id} complete")
+            except Exception as e:
+                logger.error(f"Error broadcasting to room {room_id}: {e}")
