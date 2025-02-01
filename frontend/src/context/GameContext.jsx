@@ -1,3 +1,4 @@
+// frontend/src/context/GameContext.jsx
 import { createContext, useContext, useReducer, useEffect, useRef } from "react";
 import socketClient from "../services/socketClient";
 
@@ -46,6 +47,21 @@ const initialState = {
     whiteScore: 0,
   },
 };
+
+/**
+ * 一个小工具函数，用于对比两个 board 是否完全相同。
+ * 这里用简单的双重遍历，也可以用 JSON.stringify() 比较。
+ */
+function boardsAreEqual(boardA, boardB) {
+  if (boardA.length !== boardB.length) return false;
+  for (let i = 0; i < boardA.length; i++) {
+    if (boardA[i].length !== boardB[i].length) return false;
+    for (let j = 0; j < boardA[i].length; j++) {
+      if (boardA[i][j] !== boardB[i][j]) return false;
+    }
+  }
+  return true;
+}
 
 function gameReducer(state, action) {
   switch (action.type) {
@@ -102,6 +118,28 @@ function gameReducer(state, action) {
       const newBoard = action.payload.board.map((row) => [...row]);
       console.log("[GameContext] Board after update:", newBoard);
 
+      // =========== 关键修复：先判定与当前state是否重复 ===========
+      const isBoardSame = boardsAreEqual(state.board, newBoard);
+      const sameCurrentPlayer = (action.payload.current_player === state.currentPlayer);
+      const samePasses = ((action.payload.passes ?? state.passes) === state.passes);
+      const sameCaptured = ((action.payload.captured ?? state.captured).black === state.captured.black
+        && (action.payload.captured ?? state.captured).white === state.captured.white);
+      const sameGameOver = (action.payload.game_over === state.gameOver);
+      const sameWinner = (action.payload.winner === state.winner);
+
+      if (
+        isBoardSame &&
+        sameCurrentPlayer &&
+        samePasses &&
+        sameCaptured &&
+        sameGameOver &&
+        sameWinner
+      ) {
+        console.log("[GameContext] UPDATE_GAME => Skipping duplicate update");
+        return state;  // 直接跳过，不增history
+      }
+      // =========== 重复判定结束 ===========
+
       const newHistoryEntry = {
         board: newBoard,
         currentPlayer: action.payload.current_player,
@@ -121,7 +159,7 @@ function gameReducer(state, action) {
         gameOver: action.payload.game_over,
         winner: action.payload.winner,
         history: [...state.history, newHistoryEntry],
-        currentStep: state.history.length,
+        currentStep: state.history.length, // 新的长度 = 旧的history.length + 1
       };
     }
 

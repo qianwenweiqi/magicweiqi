@@ -27,3 +27,4 @@ scripts/generate_code_pdf.py
 .history/
 backend/__pycache__/main.cpython-313.pyc
 backend/routers/__pycache__/matches.cpython-313.pyc
+gen.py
